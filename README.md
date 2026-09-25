@@ -10,12 +10,15 @@ InsightForge-AI is engineered as a modular monorepo comprising a reactive single
 insightforge-ai/
 ├── backend/               # Express + TypeScript API server & WebSocket gateway
 │   ├── src/
-│   │   ├── routes/        # Express route definitions
+│   │   ├── routes/        # Express route definitions (sessions, health)
 │   │   ├── controllers/   # Request/response controllers
-│   │   ├── services/      # Business logic & services
+│   │   ├── services/      # Business logic & services (SessionService, HealthService)
+│   │   ├── models/        # Mongoose data models (User, ResearchSession, AgentTrace, Report)
+│   │   ├── middleware/    # Error handler & Zod validation middleware
+│   │   ├── validators/    # Zod request validation schemas
+│   │   ├── scripts/       # Database seed and test scripts
 │   │   ├── agents/        # Agent orchestration layer
-│   │   ├── models/        # Data models and interfaces
-│   │   ├── config/        # Environment and app configuration
+│   │   ├── config/        # Environment and database configuration
 │   │   └── websocket/     # Real-time WebSocket streaming handlers
 │   └── package.json
 ├── frontend/              # React + Vite + TypeScript + Tailwind CSS UI
@@ -36,13 +39,22 @@ insightforge-ai/
 └── README.md
 ```
 
+## Data Layer & Mongoose Models
+
+The backend utilizes **Mongoose** with MongoDB to manage structured research workflows:
+
+- **`User`**: `{ name: String, email: String, createdAt: Date }`
+- **`ResearchSession`**: `{ userId?: ObjectId, query: String, status: "pending" | "in_progress" | "completed" | "failed", createdAt: Date, updatedAt: Date }`
+- **`AgentTrace`**: `{ sessionId: ObjectId, agentName: String, step: Mixed, input: Mixed, output: Mixed, timestamp: Date }` (observability log for agent reasoning traces)
+- **`Report`**: `{ sessionId: ObjectId, content: String, sources: [{ title, url, snippet }], createdAt: Date }`
+
 ## Getting Started
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (v20+ recommended)
 - [npm](https://www.npmjs.com/) (v10+)
-- [Docker](https://www.docker.com/) (optional, for containerized services)
+- [MongoDB](https://www.mongodb.com/) (local daemon or MongoDB Atlas URI)
 
 ### 1. Installation
 
@@ -66,11 +78,25 @@ Ensure the configuration variables match your local environment:
 
 - `PORT=5000` (Backend API)
 - `WS_PORT=5001` (WebSocket Server)
-- `MONGODB_URI=mongodb://localhost:27017/insightforge`
+- `MONGODB_URI=mongodb://localhost:27017/insightforge` (or MongoDB Atlas connection string)
 - `REDIS_URL=redis://localhost:6379`
 - `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` (for future agent integration)
 
-### 3. Running Locally (Development)
+### 3. Database Seeding & Testing
+
+Seed the database with sample research sessions, reports, and agent traces:
+
+```bash
+npm run seed
+```
+
+Run the end-to-end API test suite (verifying Mongoose models, validation, and all REST endpoints):
+
+```bash
+npm run test:api
+```
+
+### 4. Running Locally (Development)
 
 Run both backend and frontend concurrently with a single command from the monorepo root:
 
@@ -86,7 +112,7 @@ Or run services individually:
   npm run dev:backend
   ```
 
-  Runs at [http://localhost:5000](http://localhost:5000) (Health check: [http://localhost:5000/api/health](http://localhost:5000/api/health)).
+  Runs at [http://localhost:5000](http://localhost:5000).
 
 - **Frontend only**:
   ```bash
@@ -94,15 +120,15 @@ Or run services individually:
   ```
   Runs at [http://localhost:5173](http://localhost:5173) with automatic proxying to backend `/api`.
 
-### 4. Running with Docker Compose
+### 5. Running with Docker Compose
 
-To spin up the entire multi-service stack (frontend, backend, MongoDB, Redis):
+To spin up the entire stack including MongoDB and Redis:
 
 ```bash
 docker compose up --build
 ```
 
-### 5. Code Quality & Formatting
+### 6. Code Quality & Formatting
 
 Run linting across all workspace packages:
 
@@ -116,8 +142,187 @@ Format code using Prettier:
 npm run format
 ```
 
-## API Endpoints
+---
 
-- `GET /` — API service info & version
-- `GET /api/health` — System health check (`{ status: "ok", timestamp, uptime, environment }`)
-- `WS /ws` — WebSocket gateway for streaming real-time agent execution events
+## REST API Reference & cURL Examples
+
+All routes return standard JSON responses. Errors follow a consistent structure:
+
+```json
+{
+  "error": {
+    "message": "Detailed error message",
+    "code": "ERROR_CODE"
+  }
+}
+```
+
+### 1. Health Check
+
+```bash
+curl -X GET http://localhost:5000/api/health
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "status": "ok",
+  "database": "connected",
+  "timestamp": "2026-09-25T22:14:38.608Z",
+  "uptime": 42.5,
+  "environment": "development"
+}
+```
+
+### 2. Create Research Session
+
+Creates a new research session with status `"pending"`.
+
+```bash
+curl -X POST http://localhost:5000/api/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Investigation into neuromorphic visual cortex algorithms"}'
+```
+
+**Response (201 Created):**
+
+```json
+{
+  "session": {
+    "_id": "6ab6f24fad6ecd8a4315becc",
+    "query": "Investigation into neuromorphic visual cortex algorithms",
+    "status": "pending",
+    "createdAt": "2026-09-25T22:14:39.224Z",
+    "updatedAt": "2026-09-25T22:14:39.224Z"
+  }
+}
+```
+
+**Validation Error Example (Empty query):**
+
+```bash
+curl -X POST http://localhost:5000/api/sessions \
+  -H "Content-Type: application/json" \
+  -d '{"query": ""}'
+```
+
+**Response (400 Bad Request):**
+
+```json
+{
+  "error": {
+    "message": "query: Query cannot be empty",
+    "code": "VALIDATION_ERROR"
+  }
+}
+```
+
+### 3. List Research Sessions (Paginated)
+
+Lists research sessions sorted most recent first.
+
+```bash
+curl -X GET "http://localhost:5000/api/sessions?page=1&limit=10"
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "sessions": [
+    {
+      "_id": "6ab6f24fad6ecd8a4315becc",
+      "query": "Investigation into neuromorphic visual cortex algorithms",
+      "status": "pending",
+      "createdAt": "2026-09-25T22:14:39.224Z",
+      "updatedAt": "2026-09-25T22:14:39.224Z"
+    }
+  ],
+  "pagination": {
+    "total": 1,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 1
+  }
+}
+```
+
+### 4. Get Session by ID (With Report & Agent Traces)
+
+Retrieves a specific session including its synthesized report and chronological agent execution traces.
+
+```bash
+curl -X GET http://localhost:5000/api/sessions/6ab6f24ead6ecd8a4315bebe
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "session": {
+    "_id": "6ab6f24ead6ecd8a4315bebe",
+    "query": "Quantum error correction thresholds and lattice surgery in surface codes",
+    "status": "completed",
+    "createdAt": "2026-09-25T22:14:38.800Z",
+    "updatedAt": "2026-09-25T22:14:38.800Z",
+    "report": {
+      "_id": "6ab6f24ead6ecd8a4315bec2",
+      "sessionId": "6ab6f24ead6ecd8a4315bebe",
+      "content": "# Surface Code Quantum Error Correction: State of the Art...",
+      "sources": [
+        {
+          "title": "Physical Review A - Fault-Tolerant Surface Codes",
+          "url": "https://journals.aps.org/pra/quantum-surface-codes",
+          "snippet": "Comprehensive analysis of threshold limits..."
+        }
+      ]
+    },
+    "agentTraces": [
+      {
+        "_id": "6ab6f24ead6ecd8a4315bebf",
+        "sessionId": "6ab6f24ead6ecd8a4315bebe",
+        "agentName": "OrchestratorAgent",
+        "step": 1,
+        "input": { "query": "Quantum error correction thresholds..." },
+        "output": { "strategy": "literature_decomposition" },
+        "timestamp": "2026-09-25T22:14:38.810Z"
+      }
+    ]
+  }
+}
+```
+
+### 5. Delete Session
+
+Deletes a session and its associated reports and agent traces.
+
+```bash
+curl -X DELETE http://localhost:5000/api/sessions/6ab6f24fad6ecd8a4315becc
+```
+
+**Response (200 OK):**
+
+```json
+{
+  "message": "Research session and associated traces/reports deleted successfully",
+  "id": "6ab6f24fad6ecd8a4315becc"
+}
+```
+
+**Non-Existent Session (404 Not Found):**
+
+```bash
+curl -X GET http://localhost:5000/api/sessions/6ab6f24fad6ecd8a4315becc
+```
+
+**Response (404 Not Found):**
+
+```json
+{
+  "error": {
+    "message": "Research session with ID '6ab6f24fad6ecd8a4315becc' not found",
+    "code": "NOT_FOUND"
+  }
+}
+```

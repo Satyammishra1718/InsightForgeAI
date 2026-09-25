@@ -2,6 +2,8 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import apiRouter from './routes/index.js';
 import { config } from './config/index.js';
+import { errorHandler } from './middleware/errorHandler.js';
+import { NotFoundError } from './errors/AppError.js';
 
 export const createApp = (): Application => {
   const app = express();
@@ -16,10 +18,7 @@ export const createApp = (): Application => {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Routes
-  app.use('/api', apiRouter);
-
-  // Root welcome endpoint
+  // Welcome Root Endpoint
   app.get('/', (_req: Request, res: Response) => {
     res.json({
       name: 'InsightForge-AI Backend API',
@@ -27,20 +26,21 @@ export const createApp = (): Application => {
       status: 'active',
       endpoints: {
         health: '/api/health',
+        sessions: '/api/sessions',
       },
     });
   });
 
-  // 404 Handler
-  app.use((_req: Request, res: Response) => {
-    res.status(404).json({ error: 'Endpoint not found' });
+  // Routes
+  app.use('/api', apiRouter);
+
+  // 404 Catch-All Handler
+  app.use((req: Request, _res: Response, next: NextFunction) => {
+    next(new NotFoundError(`Endpoint '${req.method} ${req.originalUrl}' not found`));
   });
 
-  // Error Handler
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('Unhandled error:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  });
+  // Centralized Error-Handling Middleware
+  app.use(errorHandler);
 
   return app;
 };
