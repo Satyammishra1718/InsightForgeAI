@@ -16,6 +16,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "seed": "npm run seed -w backend",
     "test:api": "npm run test:api -w backend",
+    "test:rag": "npm run test:rag -w backend",
     "inspect:db": "npm run inspect:db -w backend"
   },
   "devDependencies": {
