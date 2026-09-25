@@ -4,6 +4,7 @@ import {
   listSessions,
   getSessionById,
   deleteSession,
+  runSession,
 } from '../controllers/session.controller.js';
 import { validateBody, validateQuery, validateParams } from '../middleware/validate.js';
 import {
@@ -25,5 +26,8 @@ router.get('/:id', validateParams(sessionParamSchema), getSessionById);
 
 // DELETE /api/sessions/:id -> delete a session
 router.delete('/:id', validateParams(sessionParamSchema), deleteSession);
+
+// POST /api/sessions/:id/run -> trigger multi-agent research pipeline for existing session
+router.post('/:id/run', validateParams(sessionParamSchema), runSession);
 
 export default router;

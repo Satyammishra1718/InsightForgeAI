@@ -30,10 +30,14 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Retrie
 
   const collection = vectorStore.getOrCreateCollection(collectionName);
 
-  // 1. Get all documents for this sessionId to build candidate set
-  const sessionDocs = await collection.get({
-    where: { sessionId },
-  });
+  // 1. Get all documents for this sessionId (or fallback to full collection if none found)
+  let sessionDocs = sessionId ? await collection.get({ where: { sessionId } }) : [];
+  let whereFilter: Record<string, unknown> | undefined = sessionId ? { sessionId } : undefined;
+
+  if (sessionDocs.length === 0) {
+    sessionDocs = await collection.get();
+    whereFilter = undefined;
+  }
 
   if (sessionDocs.length === 0) {
     return [];
@@ -46,7 +50,7 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Retrie
   const vectorQueryResults = await collection.query({
     queryEmbeddings: [queryEmbedding],
     nResults: candidateLimit,
-    where: { sessionId },
+    where: whereFilter,
   });
 
   const vectorMatches = vectorQueryResults[0] || [];

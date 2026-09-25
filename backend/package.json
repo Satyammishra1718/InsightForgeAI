@@ -11,6 +11,7 @@
     "seed": "tsx src/scripts/seed.ts",
     "test:api": "tsx src/scripts/test-endpoints.ts",
     "test:rag": "tsx src/scripts/test-rag.ts",
+    "test:pipeline": "tsx src/scripts/test-pipeline.ts",
     "inspect:db": "tsx src/scripts/inspect-db.ts"
   },
   "dependencies": {
