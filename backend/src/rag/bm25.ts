@@ -7,9 +7,39 @@ export interface BM25Document {
 }
 
 const STOP_WORDS = new Set([
-  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for', 'if', 'in', 'into', 'is', 'it',
-  'no', 'not', 'of', 'on', 'or', 'such', 'that', 'the', 'their', 'then', 'there', 'these',
-  'they', 'this', 'to', 'was', 'will', 'with',
+  'a',
+  'an',
+  'and',
+  'are',
+  'as',
+  'at',
+  'be',
+  'but',
+  'by',
+  'for',
+  'if',
+  'in',
+  'into',
+  'is',
+  'it',
+  'no',
+  'not',
+  'of',
+  'on',
+  'or',
+  'such',
+  'that',
+  'the',
+  'their',
+  'then',
+  'there',
+  'these',
+  'they',
+  'this',
+  'to',
+  'was',
+  'will',
+  'with',
 ]);
 
 export class BM25SearchEngine {
@@ -24,11 +54,7 @@ export class BM25SearchEngine {
   /**
    * Performs BM25 keyword search over a corpus of documents
    */
-  public search(
-    query: string,
-    corpus: BM25Document[],
-    topK = 10,
-  ): BM25SearchResult[] {
+  public search(query: string, corpus: BM25Document[], topK = 10): BM25SearchResult[] {
     if (corpus.length === 0) {
       return [];
     }

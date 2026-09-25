@@ -48,11 +48,13 @@ async function runRagTests() {
   // 1. Test Tokenizer-Aware Document Chunking
   // ------------------------------------------------------------------
   console.log('--- Test 1: Tokenizer-Aware Document Chunking ---');
-  const sampleLongText = Array.from({ length: 15 }, (_, i) =>
-    `Paragraph ${i + 1}: Topological quantum error correction relies on stabilizer measurements across two-dimensional qubit arrays. ` +
-    `Surface codes provide fault-tolerance thresholds near 1 percent under depolarizing noise models. ` +
-    `Planar lattice surgery enables multi-qubit Pauli measurements without physical braid routing. ` +
-    `Hardware implementations using superconducting transmons and neutral atom optical tweezers demonstrate logical lifetime enhancements.`
+  const sampleLongText = Array.from(
+    { length: 15 },
+    (_, i) =>
+      `Paragraph ${i + 1}: Topological quantum error correction relies on stabilizer measurements across two-dimensional qubit arrays. ` +
+      `Surface codes provide fault-tolerance thresholds near 1 percent under depolarizing noise models. ` +
+      `Planar lattice surgery enables multi-qubit Pauli measurements without physical braid routing. ` +
+      `Hardware implementations using superconducting transmons and neutral atom optical tweezers demonstrate logical lifetime enhancements.`,
   ).join('\n\n');
 
   const chunks = chunkText(sampleLongText, {
@@ -142,7 +144,9 @@ async function runRagTests() {
   ];
 
   const webResult = await IngestionPipeline.ingestWebSnippets(testSessionId, sampleSnippets);
-  console.log(`Web Snippets Ingested: ${webResult.chunksCount} chunks, ${webResult.totalTokens} tokens.`);
+  console.log(
+    `Web Snippets Ingested: ${webResult.chunksCount} chunks, ${webResult.totalTokens} tokens.`,
+  );
   console.log('✓ Web snippet ingestion passed!\n');
 
   // ------------------------------------------------------------------
@@ -151,11 +155,15 @@ async function runRagTests() {
   console.log('--- Test 5: Hybrid Context Retrieval (retrieveContext) ---');
 
   // Query A: Targets PDF content
-  console.log('\nQuery A: "What is the physical qubit overhead for surface code error correction?"');
+  console.log(
+    '\nQuery A: "What is the physical qubit overhead for surface code error correction?"',
+  );
   const resultsA = await retrieveContext(testSessionId, 'physical qubit overhead surface code', 3);
   console.log(`Top matches returned: ${resultsA.length}`);
   resultsA.forEach((r, idx) => {
-    console.log(`  [Rank ${idx + 1}] Source: ${r.source} (${r.sourceType}) | Score: ${r.score.toFixed(4)}`);
+    console.log(
+      `  [Rank ${idx + 1}] Source: ${r.source} (${r.sourceType}) | Score: ${r.score.toFixed(4)}`,
+    );
     console.log(`          Excerpt: "${r.text.replace(/\s+/g, ' ').slice(0, 110)}..."`);
   });
 
@@ -166,10 +174,16 @@ async function runRagTests() {
 
   // Query B: Targets Web Snippet content
   console.log('Query B: "How do neutral atoms and optical tweezers perform Rydberg gates?"');
-  const resultsB = await retrieveContext(testSessionId, 'neutral atom optical tweezer rydberg blockade fidelity', 3);
+  const resultsB = await retrieveContext(
+    testSessionId,
+    'neutral atom optical tweezer rydberg blockade fidelity',
+    3,
+  );
   console.log(`Top matches returned: ${resultsB.length}`);
   resultsB.forEach((r, idx) => {
-    console.log(`  [Rank ${idx + 1}] Source: ${r.source} (${r.sourceType}) | Score: ${r.score.toFixed(4)}`);
+    console.log(
+      `  [Rank ${idx + 1}] Source: ${r.source} (${r.sourceType}) | Score: ${r.score.toFixed(4)}`,
+    );
     console.log(`          Excerpt: "${r.text.replace(/\s+/g, ' ').slice(0, 110)}..."`);
   });
 

@@ -27,7 +27,9 @@ async function inspectDatabase() {
   const targetCollections = ['users', 'researchsessions', 'agenttraces', 'reports'];
   for (const colName of targetCollections) {
     const exists = colNames.includes(colName);
-    console.log(`  [${exists ? '✓' : '✗'}] Collection '${colName}': ${exists ? 'EXISTS' : 'MISSING'}`);
+    console.log(
+      `  [${exists ? '✓' : '✗'}] Collection '${colName}': ${exists ? 'EXISTS' : 'MISSING'}`,
+    );
   }
   console.log('');
 
@@ -45,7 +47,9 @@ async function inspectDatabase() {
     console.log(`  - _id:       ${sample._id?.constructor?.name} (${sample._id})`);
     console.log(`  - name:      ${typeof sample.name} ("${sample.name}")`);
     console.log(`  - email:     ${typeof sample.email} ("${sample.email}")`);
-    console.log(`  - createdAt: ${sample.createdAt instanceof Date ? 'Date' : typeof sample.createdAt} (${sample.createdAt})`);
+    console.log(
+      `  - createdAt: ${sample.createdAt instanceof Date ? 'Date' : typeof sample.createdAt} (${sample.createdAt})`,
+    );
   }
   console.log('');
 
@@ -64,8 +68,12 @@ async function inspectDatabase() {
     console.log(`  - userId:    ${sample.userId?.constructor?.name} (${sample.userId})`);
     console.log(`  - query:     ${typeof sample.query} ("${sample.query.slice(0, 40)}...")`);
     console.log(`  - status:    ${typeof sample.status} ("${sample.status}")`);
-    console.log(`  - createdAt: ${sample.createdAt instanceof Date ? 'Date' : typeof sample.createdAt} (${sample.createdAt})`);
-    console.log(`  - updatedAt: ${sample.updatedAt instanceof Date ? 'Date' : typeof sample.updatedAt} (${sample.updatedAt})`);
+    console.log(
+      `  - createdAt: ${sample.createdAt instanceof Date ? 'Date' : typeof sample.createdAt} (${sample.createdAt})`,
+    );
+    console.log(
+      `  - updatedAt: ${sample.updatedAt instanceof Date ? 'Date' : typeof sample.updatedAt} (${sample.updatedAt})`,
+    );
   }
   console.log('');
 
@@ -86,7 +94,9 @@ async function inspectDatabase() {
     console.log(`  - step:      ${typeof sample.step} (${sample.step})`);
     console.log(`  - input:     ${typeof sample.input} (${JSON.stringify(sample.input)})`);
     console.log(`  - output:    ${typeof sample.output} (${JSON.stringify(sample.output)})`);
-    console.log(`  - timestamp: ${sample.timestamp instanceof Date ? 'Date' : typeof sample.timestamp} (${sample.timestamp})`);
+    console.log(
+      `  - timestamp: ${sample.timestamp instanceof Date ? 'Date' : typeof sample.timestamp} (${sample.timestamp})`,
+    );
   }
   console.log('');
 
@@ -103,15 +113,21 @@ async function inspectDatabase() {
     console.log('Field Types Verification:');
     console.log(`  - _id:       ${sample._id?.constructor?.name} (${sample._id})`);
     console.log(`  - sessionId: ${sample.sessionId?.constructor?.name} (${sample.sessionId})`);
-    console.log(`  - content:   ${typeof sample.content} (Length: ${sample.content?.length} chars)`);
+    console.log(
+      `  - content:   ${typeof sample.content} (Length: ${sample.content?.length} chars)`,
+    );
     console.log(`  - sources:   Array of ${sample.sources?.length} items`);
     if (sample.sources?.length > 0) {
       const src = sample.sources[0];
       console.log(`     * Source[0].title:   ${typeof src.title} ("${src.title}")`);
       console.log(`     * Source[0].url:     ${typeof src.url} ("${src.url}")`);
-      console.log(`     * Source[0].snippet: ${typeof src.snippet} ("${src.snippet?.slice(0, 35)}...")`);
+      console.log(
+        `     * Source[0].snippet: ${typeof src.snippet} ("${src.snippet?.slice(0, 35)}...")`,
+      );
     }
-    console.log(`  - createdAt: ${sample.createdAt instanceof Date ? 'Date' : typeof sample.createdAt} (${sample.createdAt})`);
+    console.log(
+      `  - createdAt: ${sample.createdAt instanceof Date ? 'Date' : typeof sample.createdAt} (${sample.createdAt})`,
+    );
   }
   console.log('');
 
