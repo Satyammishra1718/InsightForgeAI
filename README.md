@@ -48,13 +48,33 @@ The backend utilizes **Mongoose** with MongoDB to manage structured research wor
 - **`AgentTrace`**: `{ sessionId: ObjectId, agentName: String, step: Mixed, input: Mixed, output: Mixed, timestamp: Date }` (observability log for agent reasoning traces)
 - **`Report`**: `{ sessionId: ObjectId, content: String, sources: [{ title, url, snippet }], createdAt: Date }`
 
+## Resilient Multi-Network Connectivity (College WiFi vs. Hotspot)
+
+If you are developing across multiple networks (e.g., restricted campus/college WiFi and mobile hotspots), you may encounter MongoDB Atlas connection timeouts (`Could not connect to any servers in your MongoDB Atlas cluster`) because **campus firewalls frequently block outgoing TCP port 27017 and DNS SRV lookups**.
+
+InsightForge-AI includes an **automatic dual-mode database connection engine**:
+
+1. **Auto-Detection & Seamless Fallback (Zero Config)**:
+   - On startup, the backend probes the primary `MONGODB_URI` with a fast 3-second timeout.
+   - If reachable (e.g. on mobile hotspot or unblocked network), it connects directly to your Atlas/remote cluster (`[ATLAS]` mode).
+   - If blocked or unreachable (e.g. on College WiFi), it automatically catches the failure and spins up a local embedded MongoDB instance (`[EMBEDDED]` mode via `mongodb-memory-server`) with zero crashes.
+   - You never have to manually edit connection strings, IPs, or `.env` files when switching networks.
+2. **Auto-Seeding**:
+   - When running in embedded mode with an empty database, the backend automatically seeds demo sessions, reports, and agent traces so the frontend and API always have data ready to display.
+3. **Optional Fast-Start Flag**:
+   - If you know you are on College WiFi and want to bypass the 3-second Atlas probe for instant startup:
+     ```env
+     FORCE_LOCAL_DB=true
+     ```
+   - Simply omit or set to `false` when switching back to a network with Atlas access.
+
 ## Getting Started
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) (v20+ recommended)
 - [npm](https://www.npmjs.com/) (v10+)
-- [MongoDB](https://www.mongodb.com/) (local daemon or MongoDB Atlas URI)
+- [MongoDB](https://www.mongodb.com/) (Optional: remote Atlas URI, local daemon, or automated embedded fallback)
 
 ### 1. Installation
 

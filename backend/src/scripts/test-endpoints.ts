@@ -1,37 +1,21 @@
 import request from 'supertest';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createApp } from '../app.js';
-import { connectDatabase, disconnectDatabase } from '../config/database.js';
+import { connectDatabase, disconnectDatabase, getDatabaseInfo } from '../config/database.js';
 import { seedDatabase } from './seed.js';
-
-let mongod: MongoMemoryServer | null = null;
 
 async function runTests() {
   console.log('====================================================');
   console.log('   InsightForge-AI Data Layer End-to-End Test Suite  ');
   console.log('====================================================\n');
 
-  let mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/insightforge';
-  let usingMemoryServer = false;
-
-  try {
-    console.log(`[Test] Attempting connection to configured MONGODB_URI: ${mongoUri}...`);
-    await connectDatabase(mongoUri);
-    console.log('[Test] Connected to configured MongoDB instance.\n');
-  } catch {
-    console.log(
-      '[Test] Local MongoDB not reachable. Spinning up MongoMemoryServer for verification...',
-    );
-    mongod = await MongoMemoryServer.create();
-    mongoUri = mongod.getUri();
-    usingMemoryServer = true;
-    await connectDatabase(mongoUri);
-    console.log(`[Test] Connected to in-memory MongoDB at ${mongoUri}\n`);
-  }
+  console.log('[Test] Connecting to database (with automatic dual-mode fallback)...');
+  await connectDatabase();
+  const dbInfo = getDatabaseInfo();
+  console.log(`[Test] Active database mode: [${dbInfo.mode.toUpperCase()}] (${dbInfo.uri})\n`);
 
   // 1. Seed database with initial records
   console.log('--- Step 1: Seeding database ---');
-  const seedResult = await seedDatabase(mongoUri);
+  const seedResult = await seedDatabase();
   const sampleSessionId = seedResult.sessions[0]._id.toString();
   console.log(`Using sample session for tests: ${sampleSessionId}\n`);
 
@@ -137,13 +121,10 @@ async function runTests() {
 
   // Cleanup
   await disconnectDatabase();
-  if (mongod) {
-    await mongod.stop();
-  }
 
   console.log('====================================================');
   console.log(
-    `All Data Layer Endpoints Verified Successfully! ${usingMemoryServer ? '(via MongoMemoryServer)' : ''}`,
+    `All Data Layer Endpoints Verified Successfully in [${dbInfo.mode.toUpperCase()}] mode!`,
   );
   console.log('====================================================');
 }
@@ -151,8 +132,5 @@ async function runTests() {
 runTests().catch(async (error) => {
   console.error('[Test Failed]:', error);
   await disconnectDatabase();
-  if (mongod) {
-    await mongod.stop();
-  }
   process.exit(1);
 });

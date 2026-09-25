@@ -1,8 +1,9 @@
 import http from 'http';
 import { createApp } from './app.js';
 import { config } from './config/index.js';
-import { connectDatabase, disconnectDatabase } from './config/database.js';
+import { connectDatabase, disconnectDatabase, getDatabaseInfo } from './config/database.js';
 import { wsServer } from './websocket/server.js';
+import { ResearchSession } from './models/index.js';
 
 const app = createApp();
 const server = http.createServer(app);
@@ -12,19 +13,30 @@ wsServer.init(server);
 
 async function startServer(): Promise<void> {
   try {
-    // 1. Connect to MongoDB using Mongoose
+    // 1. Connect to MongoDB using Mongoose (auto-falls back to local embedded if Atlas is unreachable)
     console.log('[Startup] Initializing MongoDB connection...');
     await connectDatabase();
-    console.log('[Startup] MongoDB connected successfully. Ready to accept database operations.');
+    const dbInfo = getDatabaseInfo();
+    console.log(`[Startup] MongoDB connected successfully in [${dbInfo.mode.toUpperCase()}] mode.`);
+
+    // 2. Auto-seed if database has 0 sessions (ensures UI always has data on initial run)
+    const sessionCount = await ResearchSession.countDocuments();
+    if (sessionCount === 0) {
+      console.log(
+        '[Startup] Fresh/empty database detected. Auto-seeding initial research sessions...',
+      );
+      const { seedDatabase } = await import('./scripts/seed.js');
+      await seedDatabase();
+    }
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     console.error(
       `[Startup] Warning: MongoDB connection could not be established (${errorMsg}). ` +
-        'The server will run in degraded mode. Please check MONGODB_URI in .env.',
+        'The server will run in degraded mode.',
     );
   }
 
-  // 2. Start HTTP & WebSocket Server
+  // 3. Start HTTP & WebSocket Server
   server.listen(config.port, () => {
     console.log(`[InsightForge-AI] Server running on http://localhost:${config.port}`);
     console.log(`[InsightForge-AI] Health check: http://localhost:${config.port}/api/health`);
