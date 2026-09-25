@@ -25,6 +25,17 @@ export function errorHandler(
     return;
   }
 
+  // 2. Malformed JSON Body Parse Error (e.g. from express.json)
+  if (err instanceof SyntaxError && ('body' in err || 'status' in err)) {
+    res.status(400).json({
+      error: {
+        message: 'Malformed JSON payload in request body',
+        code: 'INVALID_JSON',
+      },
+    });
+    return;
+  }
+
   // 2. Zod Validation Errors
   if (err instanceof ZodError) {
     const issues =
