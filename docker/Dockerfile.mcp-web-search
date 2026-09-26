@@ -1,0 +1,34 @@
+# Syntax: docker/dockerfile:1
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Copy root package files and mcp-web-search
+COPY package*.json ./
+COPY mcp-servers/web-search/package*.json ./mcp-servers/web-search/
+
+RUN npm install --workspace=@insightforge/mcp-web-search
+
+COPY mcp-servers/web-search/ ./mcp-servers/web-search/
+
+WORKDIR /app/mcp-servers/web-search
+RUN npm run build
+
+# Production Runner
+FROM node:22-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=4001
+
+COPY package*.json ./
+COPY mcp-servers/web-search/package*.json ./mcp-servers/web-search/
+
+RUN npm install --omit=dev --workspace=@insightforge/mcp-web-search
+
+COPY --from=builder /app/mcp-servers/web-search/dist ./mcp-servers/web-search/dist
+
+EXPOSE 4001
+
+CMD ["node", "mcp-servers/web-search/dist/index.js"]

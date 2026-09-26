@@ -13,9 +13,11 @@
     "test:rag": "tsx src/scripts/test-rag.ts",
     "test:pipeline": "tsx src/scripts/test-pipeline.ts",
     "verify:orchestration": "tsx src/scripts/verify-orchestration-checklist.ts",
+    "test:mcp": "tsx src/scripts/test-mcp-pipeline.ts",
     "inspect:db": "tsx src/scripts/inspect-db.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "chromadb": "^3.5.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",

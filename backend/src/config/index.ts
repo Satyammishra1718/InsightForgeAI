@@ -19,6 +19,8 @@ export interface AppConfig {
   vectorDbPath: string;
   openaiApiKey?: string;
   anthropicApiKey?: string;
+  mcpWebSearchUrl: string;
+  mcpDocRetrievalUrl: string;
 }
 
 export const config: AppConfig = {
@@ -31,4 +33,6 @@ export const config: AppConfig = {
   vectorDbPath: process.env.VECTOR_DB_PATH || './data/vector_db',
   openaiApiKey: process.env.OPENAI_API_KEY,
   anthropicApiKey: process.env.ANTHROPIC_API_KEY,
+  mcpWebSearchUrl: process.env.MCP_WEB_SEARCH_URL || 'http://localhost:4001/sse',
+  mcpDocRetrievalUrl: process.env.MCP_DOC_RETRIEVAL_URL || 'http://localhost:4002/sse',
 };

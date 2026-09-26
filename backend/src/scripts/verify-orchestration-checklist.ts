@@ -1,4 +1,3 @@
-import { Types } from 'mongoose';
 import request from 'supertest';
 import { createApp } from '../app.js';
 import { connectDatabase, disconnectDatabase, getDatabaseInfo } from '../config/database.js';
@@ -344,6 +343,7 @@ async function verifyOrchestrationChecklist() {
   console.log('========================================================================');
   console.log('  ALL 6 ORCHESTRATION CHECKLIST REQUIREMENTS VERIFIED AND PASSING!     ');
   console.log('========================================================================\n');
+  process.exit(0);
 }
 
 verifyOrchestrationChecklist().catch(async (err) => {

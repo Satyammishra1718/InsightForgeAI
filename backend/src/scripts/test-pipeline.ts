@@ -280,6 +280,7 @@ async function runPipelineTests() {
   console.log('================================================================');
   console.log('  ALL MULTI-AGENT ORCHESTRATION PIPELINE TESTS PASSED (100%)');
   console.log('================================================================\n');
+  process.exit(0);
 }
 
 runPipelineTests().catch(async (err) => {

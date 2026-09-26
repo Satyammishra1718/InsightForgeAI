@@ -18,9 +18,51 @@ services:
       - REDIS_URL=redis://redis:6379
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - MCP_WEB_SEARCH_URL=http://mcp-web-search:4001/sse
+      - MCP_DOC_RETRIEVAL_URL=http://mcp-doc-retrieval:4002/sse
     depends_on:
       - mongo
       - redis
+      - mcp-web-search
+      - mcp-doc-retrieval
+    networks:
+      - insightforge-net
+    restart: unless-stopped
+
+  # MCP Tool Server: Web Search
+  mcp-web-search:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp-web-search
+    container_name: insightforge-mcp-web-search
+    ports:
+      - "4001:4001"
+    environment:
+      - NODE_ENV=production
+      - PORT=4001
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - SERPER_API_KEY=${SERPER_API_KEY:-}
+    networks:
+      - insightforge-net
+    restart: unless-stopped
+
+  # MCP Tool Server: Document Retrieval & Hybrid RAG
+  mcp-doc-retrieval:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.mcp-doc-retrieval
+    container_name: insightforge-mcp-doc-retrieval
+    ports:
+      - "4002:4002"
+    environment:
+      - NODE_ENV=production
+      - PORT=4002
+      - BACKEND_API_URL=http://backend:5000
+      - VECTOR_DB_PATH=/app/data/vector_db
+    volumes:
+      - vector_data:/app/data/vector_db
+    networks:
+      - insightforge-net
     restart: unless-stopped
 
   # Frontend Web UI
@@ -33,6 +75,8 @@ services:
       - "80:80"
     depends_on:
       - backend
+    networks:
+      - insightforge-net
     restart: unless-stopped
 
   # MongoDB Document Store
@@ -43,6 +87,8 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    networks:
+      - insightforge-net
     restart: unless-stopped
 
   # Redis In-Memory Cache & Message Broker
@@ -53,8 +99,15 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - insightforge-net
     restart: unless-stopped
+
+networks:
+  insightforge-net:
+    driver: bridge
 
 volumes:
   mongo_data:
   redis_data:
+  vector_data:
