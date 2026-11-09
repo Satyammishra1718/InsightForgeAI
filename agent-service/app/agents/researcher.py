@@ -86,16 +86,19 @@ async def conduct_single_research(session_id: str, sub_q: str, index: int) -> Di
     findings_text = ""
     llm = get_chat_model(temperature=0.3)
     if llm:
-        await acquire_llm_permit()
-        resp = await invoke_llm(
-            llm=llm,
-            messages=[
-                SystemMessage(content=RESEARCHER_SYSTEM_PROMPT),
-                HumanMessage(content=f"Sub-Question:\n{sub_q}\n\nEvidence Context:\n{context_str}")
-            ],
-            agent_name=f"Researcher-{index}"
-        )
-        content = resp.content
+        messages = [
+            SystemMessage(content=RESEARCHER_SYSTEM_PROMPT),
+            HumanMessage(content=f"Sub-Question:\n{sub_q}\n\nEvidence Context:\n{context_str}")
+        ]
+        content = None
+        # Reasoning models occasionally return an empty message; retry once before giving up.
+        for attempt in range(2):
+            await acquire_llm_permit()
+            resp = await invoke_llm(llm=llm, messages=messages, agent_name=f"Researcher-{index}")
+            content = resp.content
+            if isinstance(content, str) and content.strip():
+                break
+            logger.warning(f"[Researcher-{index}] Empty LLM response (attempt {attempt + 1}/2)")
         if isinstance(content, str):
             cleaned = content.strip()
             if cleaned.startswith("```json"):
@@ -127,8 +130,11 @@ async def conduct_single_research(session_id: str, sub_q: str, index: int) -> Di
                 # LLM output direct analysis text
                 findings_text = cleaned
 
-        if not findings_text and is_real_llm_configured():
-            raise RuntimeError(f"[Researcher-{index}] Real LLM call succeeded but returned empty findings for sub-question: '{sub_q}'")
+        if not findings_text:
+            # One empty sub-question shouldn't sink the whole report. Record the gap explicitly;
+            # the Critic and Synthesizer see that nothing was established for it.
+            logger.warning(f"[Researcher-{index}] No findings produced for sub-question: '{sub_q}'")
+            findings_text = "No findings could be generated for this sub-question (the model returned an empty response)."
 
     elif not is_real_llm_configured():
         # Fallback findings strictly for unconfigured local dev mode

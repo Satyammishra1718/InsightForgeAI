@@ -3,6 +3,10 @@ import { createApp } from '../app.js';
 import { connectDatabase, disconnectDatabase, getDatabaseInfo } from '../config/database.js';
 import { seedDatabase } from './seed.js';
 
+// Standalone script: own embedded DB + in-process worker, so use a private BullMQ queue
+// instead of the dev server's 'research' queue (its worker can't see this script's sessions).
+process.env.RESEARCH_QUEUE_NAME ??= `research-script-${process.pid}`;
+
 async function runTests() {
   console.log('====================================================');
   console.log('   InsightForge-AI Data Layer End-to-End Test Suite  ');
@@ -129,8 +133,11 @@ async function runTests() {
   console.log('====================================================');
 }
 
-runTests().catch(async (error) => {
-  console.error('[Test Failed]:', error);
-  await disconnectDatabase();
-  process.exit(1);
-});
+runTests()
+  // Redis/Chroma client handles keep the event loop alive; exit explicitly once done.
+  .then(() => process.exit(0))
+  .catch(async (error) => {
+    console.error('[Test Failed]:', error);
+    await disconnectDatabase();
+    process.exit(1);
+  });

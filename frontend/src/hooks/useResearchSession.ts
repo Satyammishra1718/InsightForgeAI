@@ -116,7 +116,19 @@ export function useResearchSession() {
         }
       } else if (sessionData.status === 'failed') {
         setIsRunning(false);
-        setError('Research session failed to complete. Please try running again.');
+        setError(
+          sessionData.errorMessage
+            ? `Research failed: ${sessionData.errorMessage}`
+            : 'Research session failed to complete. Please try running again.',
+        );
+        // Whatever was still running when the pipeline stopped did not finish.
+        setAgents((prev) =>
+          prev.map((a) =>
+            a.status === 'active'
+              ? { ...a, status: 'failed', summary: 'Stopped: the run failed.' }
+              : a,
+          ),
+        );
         if (pollingTimerRef.current) {
           clearInterval(pollingTimerRef.current);
           pollingTimerRef.current = null;
@@ -139,7 +151,9 @@ export function useResearchSession() {
         return prev.map((agent) => {
           const isMatch =
             agent.id === agentName ||
-            (agentName.startsWith('researcher') && agent.id.startsWith('researcher') && agent.id === agentName);
+            (agentName.startsWith('researcher') &&
+              agent.id.startsWith('researcher') &&
+              agent.id === agentName);
 
           if (isMatch) {
             let nextStatus: AgentCardInfo['status'] = 'waiting';
@@ -159,7 +173,10 @@ export function useResearchSession() {
           if (agentName.startsWith('researcher') && agent.id === 'planner') {
             return { ...agent, status: 'done' };
           }
-          if (agentName === 'critic' && (agent.id === 'planner' || agent.id.startsWith('researcher'))) {
+          if (
+            agentName === 'critic' &&
+            (agent.id === 'planner' || agent.id.startsWith('researcher'))
+          ) {
             return { ...agent, status: 'done' };
           }
           if (agentName === 'synthesizer' && agent.id !== 'synthesizer') {
@@ -265,7 +282,9 @@ export function useResearchSession() {
 
         if (!createRes.ok) {
           const errData = await createRes.json().catch(() => ({}));
-          throw new Error(errData.error?.message || `Failed to create session (HTTP ${createRes.status})`);
+          throw new Error(
+            errData.error?.message || `Failed to create session (HTTP ${createRes.status})`,
+          );
         }
 
         const createData = await createRes.json();
@@ -282,7 +301,9 @@ export function useResearchSession() {
 
         if (!runRes.ok) {
           const errData = await runRes.json().catch(() => ({}));
-          throw new Error(errData.error?.message || `Failed to start research run (HTTP ${runRes.status})`);
+          throw new Error(
+            errData.error?.message || `Failed to start research run (HTTP ${runRes.status})`,
+          );
         }
 
         const runData = await runRes.json();
@@ -310,7 +331,11 @@ export function useResearchSession() {
         setAgents((prev) =>
           prev.map((a) =>
             a.id === 'planner'
-              ? { ...a, status: 'active', summary: 'Deconstructing research query into sub-questions...' }
+              ? {
+                  ...a,
+                  status: 'active',
+                  summary: 'Deconstructing research query into sub-questions...',
+                }
               : a,
           ),
         );
@@ -319,7 +344,8 @@ export function useResearchSession() {
       } catch (err) {
         setIsRunning(false);
         setError(
-          (err instanceof Error && err.message) || 'An unexpected error occurred while running research',
+          (err instanceof Error && err.message) ||
+            'An unexpected error occurred while running research',
         );
       }
     },

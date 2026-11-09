@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { config } from './index.js';
@@ -15,6 +18,17 @@ let databaseMode: DatabaseMode = 'disconnected';
 let activeUri = '';
 let embeddedServer: MongoMemoryServer | null = null;
 
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+export interface ConnectOptions {
+  /**
+   * Keep the embedded MongoDB's data on disk (MONGODB_DATA_DIR, default data/mongo) so research
+   * history survives restarts. Only the long-running server should set this: one data directory
+   * can't be shared by two mongod processes, so test scripts use a throwaway in-memory instance.
+   */
+  persistEmbedded?: boolean;
+}
+
 /**
  * Connect to MongoDB with intelligent dual-mode support:
  * 1. Checks if offline/embedded mode is forced via FORCE_LOCAL_DB / MONGODB_OFFLINE.
@@ -22,7 +36,10 @@ let embeddedServer: MongoMemoryServer | null = null;
  * 3. If primary connection fails (common on restricted college/corporate WiFi blocking port 27017),
  *    automatically spins up a local embedded MongoDB instance.
  */
-export async function connectDatabase(customUri?: string): Promise<typeof mongoose> {
+export async function connectDatabase(
+  customUri?: string,
+  options: ConnectOptions = {},
+): Promise<typeof mongoose> {
   const targetUri = customUri || config.mongoUri;
 
   if (isConnected && mongoose.connection.readyState === 1) {
@@ -83,17 +100,26 @@ export async function connectDatabase(customUri?: string): Promise<typeof mongoo
   }
 
   // Fallback: Start embedded local MongoDB instance
-  return await startEmbeddedDatabase();
+  return await startEmbeddedDatabase(options.persistEmbedded ?? false);
 }
 
 /**
  * Starts a local embedded MongoDB server
  */
-async function startEmbeddedDatabase(): Promise<typeof mongoose> {
+async function startEmbeddedDatabase(persist: boolean): Promise<typeof mongoose> {
   try {
     if (!embeddedServer) {
-      console.log('[MongoDB] Starting local embedded MongoDB instance...');
-      embeddedServer = await MongoMemoryServer.create();
+      if (persist) {
+        const dbPath = path.resolve(REPO_ROOT, process.env.MONGODB_DATA_DIR || 'data/mongo');
+        fs.mkdirSync(dbPath, { recursive: true });
+        console.log(`[MongoDB] Starting local embedded MongoDB instance (data: ${dbPath})...`);
+        embeddedServer = await MongoMemoryServer.create({
+          instance: { dbPath, storageEngine: 'wiredTiger' },
+        });
+      } else {
+        console.log('[MongoDB] Starting local embedded MongoDB instance (in-memory)...');
+        embeddedServer = await MongoMemoryServer.create();
+      }
     }
 
     const embeddedUri = embeddedServer.getUri();

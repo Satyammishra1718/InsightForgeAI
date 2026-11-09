@@ -7,12 +7,20 @@ export interface ResearchJobData {
   cacheable?: boolean;
 }
 
+/**
+ * BullMQ queue name. Overridable so standalone test scripts (which use their own embedded
+ * database and in-process worker) don't share a queue with a running dev server's worker.
+ */
+export function getResearchQueueName(): string {
+  return process.env.RESEARCH_QUEUE_NAME || 'research';
+}
+
 let researchQueueInstance: Queue<ResearchJobData, unknown, string, ResearchJobData> | null = null;
 
 export async function getResearchQueue(): Promise<Queue<ResearchJobData, unknown, string, ResearchJobData>> {
   if (!researchQueueInstance) {
     await ensureRedisServer();
-    const queue = new Queue<ResearchJobData, unknown, string, ResearchJobData>('research', {
+    const queue = new Queue<ResearchJobData, unknown, string, ResearchJobData>(getResearchQueueName(), {
       connection: getBullMQConnection(),
       defaultJobOptions: {
         attempts: 2,

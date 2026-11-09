@@ -29,6 +29,8 @@ export interface ResearchSession {
   userId?: { name: string; email: string } | string;
   query: string;
   status: SessionStatus;
+  /** Human-readable failure reason, set when status is 'failed'. */
+  errorMessage?: string;
   createdAt: string;
   updatedAt: string;
   report?: Report | null;

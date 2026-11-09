@@ -1,12 +1,40 @@
 import { Worker, Job } from 'bullmq';
 import { getBullMQConnection, ensureRedisServer } from '../config/redis.js';
-import { ResearchJobData } from './research.queue.js';
+import { ResearchJobData, getResearchQueueName } from './research.queue.js';
 import { runResearchPipeline } from '../agents/orchestrator.js';
 import { ResearchSession } from '../models/index.js';
 import { SemanticCacheService } from '../services/semanticCache.service.js';
 import { logger, createSessionLogger } from '../utils/logger.js';
 
 let researchWorkerInstance: Worker<ResearchJobData> | null = null;
+
+/**
+ * Turn a raw pipeline error (often a nested provider JSON blob) into a short message the UI can
+ * show. The full error is still logged.
+ */
+export function toUserFacingError(raw: string): string {
+  const text = raw.toLowerCase();
+  if (text.includes('tokens per day') || text.includes('(tpd)')) {
+    return "The LLM provider's daily token limit has been reached. Try again later, or switch LLM_MODEL / upgrade the provider plan.";
+  }
+  if (text.includes('429') || text.includes('rate limit') || text.includes('rate_limit')) {
+    return 'The LLM provider is rate-limiting requests right now. Wait a minute and retry.';
+  }
+  if (text.includes('401') || text.includes('invalid api key') || text.includes('invalid_api_key')) {
+    return 'The LLM provider rejected the API key. Check GROQ_API_KEY / OPENAI_API_KEY in .env.';
+  }
+  if (text.includes('no llm') || text.includes('llm is not configured')) {
+    return 'No LLM is configured. Set GROQ_API_KEY (or OPENAI_API_KEY) in .env.';
+  }
+  if (text.includes('timeout') || text.includes('aborted')) {
+    return 'The research run timed out before the agents finished. Please retry.';
+  }
+  if (text.includes('econnrefused') || text.includes('fetch failed')) {
+    return 'The Python agent service is unreachable. Make sure it is running (npm run dev).';
+  }
+  const firstLine = raw.split('\n')[0];
+  return firstLine.length > 300 ? `${firstLine.slice(0, 300)}…` : firstLine;
+}
 
 export async function startResearchWorker(concurrency: number = 3): Promise<Worker<ResearchJobData>> {
   if (researchWorkerInstance) {
@@ -15,10 +43,11 @@ export async function startResearchWorker(concurrency: number = 3): Promise<Work
 
   await ensureRedisServer();
 
-  logger.info({ concurrency, queue: 'research' }, 'Initializing BullMQ research worker');
+  const queueName = getResearchQueueName();
+  logger.info({ concurrency, queue: queueName }, 'Initializing BullMQ research worker');
 
   researchWorkerInstance = new Worker<ResearchJobData>(
-    'research',
+    queueName,
     async (job: Job<ResearchJobData>) => {
       const { sessionId, query, cacheable } = job.data;
       const jobLog = createSessionLogger(sessionId, { jobId: job.id, query });
@@ -70,7 +99,7 @@ export async function startResearchWorker(concurrency: number = 3): Promise<Work
         // transient LLM/provider error as final even though the retry may succeed.
         await ResearchSession.findByIdAndUpdate(sessionId, {
           status: isFinalAttempt ? 'failed' : 'pending',
-          errorMessage: isFinalAttempt ? errorMsg : undefined,
+          errorMessage: isFinalAttempt ? toUserFacingError(errorMsg) : undefined,
           updatedAt: new Date(),
         }).catch(() => null);
 

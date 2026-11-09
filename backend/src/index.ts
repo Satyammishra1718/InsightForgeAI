@@ -18,13 +18,14 @@ async function startServer(): Promise<void> {
   try {
     // 1. Connect to MongoDB using Mongoose (auto-falls back to local embedded if Atlas is unreachable)
     console.log('[Startup] Initializing MongoDB connection...');
-    await connectDatabase();
+    await connectDatabase(undefined, { persistEmbedded: true });
     const dbInfo = getDatabaseInfo();
     console.log(`[Startup] MongoDB connected successfully in [${dbInfo.mode.toUpperCase()}] mode.`);
 
-    // 2. Auto-seed if database has 0 sessions (ensures UI always has data on initial run)
+    // 2. Optional demo data. Off by default: the demo sessions are illustrative, not real
+    // pipeline output, so they shouldn't show up in a real history unless asked for.
     const sessionCount = await ResearchSession.countDocuments();
-    if (sessionCount === 0) {
+    if (sessionCount === 0 && process.env.SEED_DEMO_DATA === 'true') {
       console.log(
         '[Startup] Fresh/empty database detected. Auto-seeding initial research sessions...',
       );

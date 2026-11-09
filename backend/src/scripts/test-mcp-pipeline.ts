@@ -1,9 +1,11 @@
-import request from 'supertest';
-import { createApp } from '../app.js';
 import { connectDatabase, disconnectDatabase, getDatabaseInfo } from '../config/database.js';
-import { ResearchSession, AgentTrace, Report } from '../models/index.js';
+import { ResearchSession, AgentTrace } from '../models/index.js';
 import { IngestionPipeline } from '../rag/index.js';
 import { MCPClientManager } from '../mcp/index.js';
+
+// Standalone script: own embedded DB + in-process worker, so use a private BullMQ queue
+// instead of the dev server's 'research' queue (its worker can't see this script's sessions).
+process.env.RESEARCH_QUEUE_NAME ??= `research-script-${process.pid}`;
 
 async function runMcpPipelineVerification() {
   console.log('========================================================================');
@@ -15,7 +17,6 @@ async function runMcpPipelineVerification() {
   const dbInfo = getDatabaseInfo();
   console.log(`[Setup] Connected to database: [${dbInfo.mode.toUpperCase()}] (${dbInfo.uri})\n`);
 
-  const app = createApp();
 
   // ------------------------------------------------------------------
   // 1. Dynamic Tool Discovery via MCP Client
@@ -104,69 +105,16 @@ async function runMcpPipelineVerification() {
   }
   console.log('✓ Direct MCP tool calls and AgentTrace telemetry verified!\n');
 
-  // ------------------------------------------------------------------
-  // 3. Full End-to-End Pipeline Execution with MCP-Routed Tools
-  // ------------------------------------------------------------------
-  console.log('--- Step 3: Running End-to-End Pipeline with MCP Routing ---');
-
-  const runRes = await request(app).post(`/api/sessions/${testSessionId}/run`).send({});
-
-  console.log(`Pipeline Execution Status: ${runRes.status}`);
-  if (runRes.status !== 200) {
-    console.error('Pipeline execution error:', runRes.body);
-    throw new Error(`Pipeline failed with status ${runRes.status}`);
-  }
-
-  const { session: updatedSession, report, state } = runRes.body;
-  console.log(`Session Status: ${updatedSession.status}`);
-  console.log(`Sub-Questions: ${state.subQuestions.length}`);
-  console.log(`Findings: ${state.researchFindings.length}`);
-  console.log(`Verified Claims: ${state.verifiedClaims.length}`);
-  console.log(`Report Title: "${state.finalReport?.title || report.title}"`);
-  console.log(`Report Sources: ${report.sources.length}`);
-
-  // ------------------------------------------------------------------
-  // 4. Verify MongoDB Reasoning Traces for Full Run
-  // ------------------------------------------------------------------
-  console.log('\n--- Step 4: Verifying Complete Reasoning Trace in MongoDB ---');
-  const allTraces = await AgentTrace.find({ sessionId: testSessionId }).sort({ timestamp: 1 });
-  console.log(`Total Traces in MongoDB for Session: ${allTraces.length}`);
-
-  const stepsList = allTraces.map((t) => `${t.agentName} (${t.step})`);
-  stepsList.forEach((s, idx) => {
-    console.log(`  ${idx + 1}. ${s}`);
-  });
-
-  // Verify presence of planner, researcher, MCP calls, critic, synthesizer
-  const hasPlanner = allTraces.some((t) => t.agentName === 'PlannerAgent');
-  const hasResearcher = allTraces.some((t) => t.agentName === 'ResearcherAgent');
-  const hasMcpToolCalls = allTraces.some((t) => String(t.step).startsWith('mcp_call_'));
-  const hasCritic = allTraces.some((t) => t.agentName === 'CriticAgent');
-  const hasSynthesizer = allTraces.some((t) => t.agentName === 'SynthesizerAgent');
-
-  console.log('\nTrace Validation Breakdown:');
-  console.log(`  - PlannerAgent trace:      ${hasPlanner ? 'YES' : 'NO'}`);
-  console.log(`  - ResearcherAgent trace:   ${hasResearcher ? 'YES' : 'NO'}`);
-  console.log(`  - MCP Tool Call traces:    ${hasMcpToolCalls ? 'YES' : 'NO'}`);
-  console.log(`  - CriticAgent trace:        ${hasCritic ? 'YES' : 'NO'}`);
-  console.log(`  - SynthesizerAgent trace:   ${hasSynthesizer ? 'YES' : 'NO'}`);
-
-  if (!hasPlanner || !hasResearcher || !hasMcpToolCalls || !hasCritic || !hasSynthesizer) {
-    throw new Error('Trace audit failed: missing expected agent trace steps');
-  }
-
-  // Verify Report Document
-  const dbReport = await Report.findOne({ sessionId: testSessionId });
-  if (!dbReport || !dbReport.content || dbReport.sources.length === 0) {
-    throw new Error('Final report document is missing or invalid in MongoDB');
-  }
-  console.log('✓ MongoDB Report document validated.');
+  // The full multi-agent run is asynchronous (POST /run returns 202 and a BullMQ worker
+  // executes it), and this script runs against its own embedded database, which the dev
+  // worker cannot see. End-to-end pipeline coverage lives in `npm run test:async -w backend`
+  // and agent-service/tests/test_live_system.py, which drive the real running stack.
 
   await MCPClientManager.close();
   await disconnectDatabase();
 
   console.log('\n========================================================================');
-  console.log('  ALL MCP TOOL ACCESS & MULTI-AGENT PIPELINE TESTS PASSED (100%)       ');
+  console.log('  ALL MCP TOOL DISCOVERY & TOOL-CALL TESTS PASSED                        ');
   console.log('========================================================================\n');
   process.exit(0);
 }

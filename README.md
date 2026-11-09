@@ -105,7 +105,8 @@
 - Python 3.11+
 - Nothing else: Redis, MongoDB and ChromaDB start automatically for local development
   (Redis from `backend/redis-bin`, an embedded MongoDB when `FORCE_LOCAL_DB=true`, and a
-  ChromaDB server from the Python virtualenv).
+  ChromaDB server from the Python virtualenv). Local data is kept under `data/` (`data/mongo`,
+  `data/chroma`), so research history survives restarts.
 
 ### 1. Install
 

@@ -73,7 +73,9 @@ export async function ensureRedisServer(): Promise<void> {
     console.log(`[Redis] Connected to active Redis server at ${options.host}:${options.port}`);
     return;
   } catch {
-    console.log(`[Redis] Server not running at ${options.host}:${options.port}. Checking local binary fallback...`);
+    console.log(
+      `[Redis] Server not running at ${options.host}:${options.port}. Checking local binary fallback...`,
+    );
   }
 
   // Check for local redis-server.exe (Windows portable binary in redis-bin)
@@ -87,7 +89,24 @@ export async function ensureRedisServer(): Promise<void> {
   const exePath = candidatePaths.find((p) => fs.existsSync(p));
   if (exePath && !localRedisProcess) {
     console.log(`[Redis] Spawning local embedded Redis server: ${exePath}`);
-    localRedisProcess = spawn(exePath, ['--port', String(options.port || 6380), '--bind', '127.0.0.1'], {
+    // Persist to disk (append-only file) so the semantic cache and queued jobs survive a
+    // restart; without --dir/--appendonly the local server keeps everything in memory only.
+    const repoRoot = path.resolve(path.dirname(exePath), '../..');
+    const dataDir = path.resolve(repoRoot, process.env.REDIS_DATA_DIR || 'data/redis');
+    fs.mkdirSync(dataDir, { recursive: true });
+    const args = [
+      '--port',
+      String(options.port || 6380),
+      '--bind',
+      '127.0.0.1',
+      '--dir',
+      dataDir,
+      '--appendonly',
+      'yes',
+      '--appendfsync',
+      'everysec',
+    ];
+    localRedisProcess = spawn(exePath, args, {
       stdio: 'ignore',
       detached: false,
     });

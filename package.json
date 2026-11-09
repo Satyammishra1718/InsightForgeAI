@@ -19,7 +19,7 @@
     "dev:mcp-doc": "npm run dev -w mcp-servers/doc-retrieval",
     "chroma": "node scripts/venv.mjs chroma run --path data/chroma --host 127.0.0.1 --port 8001",
     "build": "npm run build --workspaces",
-    "lint": "npm run lint --workspaces",
+    "lint": "npm run lint --workspaces --if-present",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "seed": "npm run seed -w backend",
     "test:api": "npm run test:api -w backend",

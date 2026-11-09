@@ -12,6 +12,10 @@ import { startResearchWorker, closeResearchWorker } from '../queue/research.work
 import { closeResearchQueue } from '../queue/research.queue.js';
 import { ResearchSession, Report, AgentTrace } from '../models/index.js';
 
+// Standalone script: own embedded DB + in-process worker, so use a private BullMQ queue
+// instead of the dev server's 'research' queue (its worker can't see this script's sessions).
+process.env.RESEARCH_QUEUE_NAME ??= `research-script-${process.pid}`;
+
 let pythonProcess: ChildProcess | null = null;
 
 async function ensurePythonAgentService(): Promise<void> {
