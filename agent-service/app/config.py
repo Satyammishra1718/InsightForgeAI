@@ -27,7 +27,7 @@ class Settings:
     OPENAI_BASE_URL: str = os.getenv("OPENAI_BASE_URL", "").strip()
     ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
     
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "llama-3.3-70b-versatile").strip()
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "openai/gpt-oss-120b").strip()
     TAVILY_API_KEY: str = os.getenv("TAVILY_API_KEY", "").strip()
 
     # MCP tool servers (SSE endpoints). Leave empty to disable MCP and call tools directly.

@@ -79,8 +79,8 @@ async function runLangGraphMigrationVerification() {
 
   console.log(`  ✓ Research findings generated: ${responseState.researchFindings.length}`);
   
-  const verifiedClaims = responseState.verifiedClaims.filter((c: any) => c.status === 'verified');
-  const flaggedClaims = responseState.verifiedClaims.filter((c: any) => c.status === 'unsupported' || c.status === 'flagged');
+  const verifiedClaims = responseState.verifiedClaims.filter((c: { status: string }) => c.status === 'verified');
+  const flaggedClaims = responseState.verifiedClaims.filter((c: { status: string }) => c.status === 'unsupported' || c.status === 'flagged');
   console.log(`  ✓ Verified claims: ${verifiedClaims.length}`);
   console.log(`  ✓ Flagged/unsupported claims: ${flaggedClaims.length}`);
   if (flaggedClaims.length > 0) {

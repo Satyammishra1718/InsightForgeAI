@@ -56,5 +56,5 @@ graph TD
 - **`/frontend`**: React 19 application powered by Vite, Tailwind CSS, and TypeScript.
 - **`/backend`**: Modular Node.js + Express + TypeScript service handling API routing, WebSocket sessions, and agent orchestration.
 - **`/mcp-servers`**: Modular tool servers adhering to the Model Context Protocol standard.
-- **`/docker`**: Multi-container Docker Compose definitions for reproducible local orchestration.
+- **`/scripts`**: Dev tooling; `venv.mjs` runs the Python virtualenv's tools (uvicorn, ChromaDB) cross-platform.
 - **`/docs`**: Architectural specifications, schematics, and configuration guides.

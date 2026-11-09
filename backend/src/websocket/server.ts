@@ -2,10 +2,6 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { Server as HttpServer } from 'http';
 import { getRedisSubscriber } from '../config/redis.js';
 
-interface ClientSubscription {
-  sessionId: string;
-  ws: WebSocket;
-}
 
 export class AppWebSocketServer {
   private wss: WebSocketServer | null = null;

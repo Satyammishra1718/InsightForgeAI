@@ -1,4 +1,5 @@
 import http from 'http';
+import type { AddressInfo } from 'net';
 import WebSocket from 'ws';
 import request from 'supertest';
 import { spawn, ChildProcess } from 'child_process';
@@ -6,7 +7,7 @@ import { createApp } from '../app.js';
 import { connectDatabase, disconnectDatabase, getDatabaseInfo } from '../config/database.js';
 import { ensureRedisServer, closeRedis } from '../config/redis.js';
 import { wsServer } from '../websocket/server.js';
-import { startResearchWorker, closeResearchWorker, getResearchQueue, closeResearchQueue } from '../queue/index.js';
+import { startResearchWorker, closeResearchWorker, closeResearchQueue } from '../queue/index.js';
 import { ResearchSession, Report, AgentTrace } from '../models/index.js';
 
 let pythonProcess: ChildProcess | null = null;
@@ -81,7 +82,7 @@ async function runAsyncPipelineVerification() {
   await new Promise<void>((resolve) => {
     server.listen(0, () => resolve());
   });
-  const address = server.address() as any;
+  const address = server.address() as AddressInfo;
   const port = address.port;
   console.log(`[3/7] Test server & WebSocket listening on port ${port} (ws://127.0.0.1:${port}/ws)\n`);
 
@@ -103,8 +104,8 @@ async function runAsyncPipelineVerification() {
 
   // 5. Connect two WebSocket clients and subscribe to each session
   console.log('[6/7] Connecting independent WebSocket subscribers for both sessions...');
-  const ws1Events: any[] = [];
-  const ws2Events: any[] = [];
+  const ws1Events: Array<Record<string, unknown>> = [];
+  const ws2Events: Array<Record<string, unknown>> = [];
 
   const wsClient1 = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   const wsClient2 = new WebSocket(`ws://127.0.0.1:${port}/ws`);

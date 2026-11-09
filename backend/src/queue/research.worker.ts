@@ -1,5 +1,5 @@
 import { Worker, Job } from 'bullmq';
-import { getRedisConnectionOptions, ensureRedisServer } from '../config/redis.js';
+import { getBullMQConnection, ensureRedisServer } from '../config/redis.js';
 import { ResearchJobData } from './research.queue.js';
 import { runResearchPipeline } from '../agents/orchestrator.js';
 import { ResearchSession } from '../models/index.js';
@@ -78,7 +78,7 @@ export async function startResearchWorker(concurrency: number = 3): Promise<Work
       }
     },
     {
-      connection: getRedisConnectionOptions() as any,
+      connection: getBullMQConnection(),
       concurrency,
       lockDuration: 30000,
     },

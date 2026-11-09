@@ -111,7 +111,7 @@ export class MCPClientManager {
     fallbackFactory: () => Promise<{ app: unknown }>;
     port: number;
   }): Promise<void> {
-    // 1. Attempt connection to existing running server (e.g. Docker container or dev process)
+    // 1. Attempt connection to existing running server (e.g. a separately started dev process)
     const connected = await this.tryConnect(serverConfig.name, serverConfig.url);
     if (connected) {
       return;

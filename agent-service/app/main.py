@@ -1,5 +1,6 @@
+import asyncio
 import logging
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from .utils.dns_patch import apply_dns_resiliency
 
@@ -44,8 +45,29 @@ async def health_check():
         "mockMode": (not llm_ready) and settings.ALLOW_MOCK_LLM,
     }
 
+async def _run_graph_until_disconnect(http_request: Request, initial_state: dict) -> dict:
+    """
+    Run the LangGraph pipeline, cancelling it if the caller disconnects (e.g. the backend
+    hit its timeout and BullMQ will retry). Without this, an abandoned run keeps spending
+    LLM quota in the background while the retry starts a second, competing run.
+    """
+    graph_task = asyncio.create_task(research_graph.ainvoke(initial_state))
+    try:
+        while True:
+            done, _ = await asyncio.wait({graph_task}, timeout=1.0)
+            if done:
+                return graph_task.result()
+            if await http_request.is_disconnected():
+                logger.warning("Caller disconnected; cancelling LangGraph pipeline run.")
+                graph_task.cancel()
+                raise HTTPException(status_code=499, detail="Client disconnected; pipeline cancelled")
+    finally:
+        if not graph_task.done():
+            graph_task.cancel()
+
+
 @app.post("/run-research")
-async def run_research(request: ResearchRequest):
+async def run_research(request: ResearchRequest, http_request: Request):
     """
     Executes the full LangGraph multi-agent research pipeline:
     Planner -> Parallel Researchers -> Critic -> Synthesizer
@@ -83,7 +105,7 @@ async def run_research(request: ResearchRequest):
     }
 
     try:
-        final_state = await research_graph.ainvoke(initial_state)
+        final_state = await _run_graph_until_disconnect(http_request, initial_state)
 
         report = final_state.get("finalReport", {})
         traces = final_state.get("traces", [])

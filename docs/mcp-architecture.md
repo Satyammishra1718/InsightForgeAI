@@ -47,7 +47,7 @@ flowchart LR
 | **Coupling** | **Tight**: Agent logic directly depends on database drivers and API SDKs. | **Decoupled**: Clean protocol boundary separating reasoning agents from tool runtime. |
 | **Discovery** | **Static**: Tool schemas and signatures are hardcoded in agent prompts. | **Dynamic**: Agent queries `client.listTools()` at runtime to discover capabilities. |
 | **Swappability** | **Difficult**: Swapping search providers requires refactoring agent code. | **Seamless**: Replace server implementation without altering agent logic. |
-| **Deployment** | **Monolithic**: All tool dependencies must run in the backend container. | **Microservices**: Tools run as independent Docker containers with dedicated scaling. |
+| **Deployment** | **Monolithic**: All tool dependencies must run inside the backend process. | **Microservices**: Tools run as independent Docker containers with dedicated scaling. |
 | **Polyglot Support** | **Language-locked**: Agent and tools must share the same runtime. | **Language-agnostic**: Agents in TypeScript can invoke tools in Python, Go, or Rust. |
 | **Observability** | **Ad-hoc**: Each function manually logs or instruments traces. | **Standardized**: Middleware intercepts every tool call with latency and telemetry. |
 

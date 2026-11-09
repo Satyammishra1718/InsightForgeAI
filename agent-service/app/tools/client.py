@@ -36,13 +36,14 @@ async def web_search(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     Returns list of dicts with: title, url, snippet.
     """
     # 1. Tavily if key present
-    if settings.TAVILY_API_KEY:
+    tavily_key = settings.TAVILY_API_KEY
+    if tavily_key and not tavily_key.startswith("your_"):  # ignore the .env.example placeholder
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(
                     "https://api.tavily.com/search",
                     json={
-                        "api_key": settings.TAVILY_API_KEY,
+                        "api_key": tavily_key,
                         "query": query,
                         "max_results": max_results,
                         "search_depth": "basic",

@@ -316,9 +316,11 @@ export function useResearchSession() {
         );
 
         connectWebSocket(session._id);
-      } catch (err: any) {
+      } catch (err) {
         setIsRunning(false);
-        setError(err.message || 'An unexpected error occurred while running research');
+        setError(
+          (err instanceof Error && err.message) || 'An unexpected error occurred while running research',
+        );
       }
     },
     [connectWebSocket, fetchSessionDetails, resetState],
@@ -340,9 +342,9 @@ export function useResearchSession() {
         } else {
           setIsRunning(false);
         }
-      } catch (err: any) {
+      } catch (err) {
         setIsRunning(false);
-        setError(err.message || 'Failed to load session');
+        setError((err instanceof Error && err.message) || 'Failed to load session');
       }
     },
     [connectWebSocket, fetchSessionDetails, resetState],

@@ -2,6 +2,9 @@ import { Request, Response } from 'express';
 import mongoose from 'mongoose';
 import { getRedisClient } from '../config/redis.js';
 import { getDatabaseInfo } from '../config/database.js';
+import { getChromaClient, getChromaUrl } from '../config/chroma.js';
+
+const errMsg = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 interface ServiceCheck {
   name: string;
@@ -29,8 +32,8 @@ export async function getSystemStatus(_req: Request, res: Response): Promise<voi
         latencyMs: Date.now() - start,
         details: isConnected ? `Connected (${dbInfo.mode.toUpperCase()} mode)` : 'Disconnected',
       };
-    } catch (err: any) {
-      return { name: 'MongoDB', status: 'offline', details: err.message };
+    } catch (err) {
+      return { name: 'MongoDB', status: 'offline', details: errMsg(err) };
     }
   };
 
@@ -47,8 +50,8 @@ export async function getSystemStatus(_req: Request, res: Response): Promise<voi
         latencyMs: Date.now() - start,
         details: isOk ? 'BullMQ & Pub/Sub operational' : 'Unhealthy ping',
       };
-    } catch (err: any) {
-      return { name: 'Redis Broker & Cache', status: 'offline', details: err.message };
+    } catch (err) {
+      return { name: 'Redis Broker & Cache', status: 'offline', details: errMsg(err) };
     }
   };
 
@@ -75,12 +78,12 @@ export async function getSystemStatus(_req: Request, res: Response): Promise<voi
         details: `HTTP ${res.status}`,
         url: agentServiceUrl,
       };
-    } catch (err: any) {
+    } catch (err) {
       return {
         name: 'Python Agent Service (LangGraph)',
         status: 'offline',
         latencyMs: Date.now() - start,
-        details: err.name === 'TimeoutError' ? 'Connection timeout' : 'Unreachable',
+        details: err instanceof Error && err.name === 'TimeoutError' ? 'Connection timeout' : 'Unreachable',
         url: agentServiceUrl,
       };
     }
@@ -109,7 +112,7 @@ export async function getSystemStatus(_req: Request, res: Response): Promise<voi
         details: `HTTP ${res.status}`,
         url: mcpWebSearchUrl,
       };
-    } catch (err: any) {
+    } catch {
       return {
         name: 'MCP Web Search Server',
         status: 'offline',
@@ -143,7 +146,7 @@ export async function getSystemStatus(_req: Request, res: Response): Promise<voi
         details: `HTTP ${res.status}`,
         url: mcpDocRetrievalUrl,
       };
-    } catch (err: any) {
+    } catch {
       return {
         name: 'MCP Document Retrieval Server',
         status: 'offline',
@@ -154,9 +157,25 @@ export async function getSystemStatus(_req: Request, res: Response): Promise<voi
     }
   };
 
+  // 6. ChromaDB vector database check
+  const checkChroma = async (): Promise<ServiceCheck> => {
+    const start = Date.now();
+    const url = getChromaUrl().origin;
+    try {
+      await Promise.race([
+        getChromaClient().heartbeat(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+      ]);
+      return { name: 'ChromaDB Vector Store', status: 'healthy', latencyMs: Date.now() - start, details: 'Heartbeat OK', url };
+    } catch (err) {
+      return { name: 'ChromaDB Vector Store', status: 'offline', details: errMsg(err), url };
+    }
+  };
+
   const results = await Promise.all([
     checkMongo(),
     checkRedis(),
+    checkChroma(),
     checkAgentService(),
     checkMcpWebSearch(),
     checkMcpDocRetrieval(),

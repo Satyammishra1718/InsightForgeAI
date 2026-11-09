@@ -146,7 +146,7 @@ export function SystemStatusModal({ isOpen, onClose }: SystemStatusModalProps) {
           {loading ? (
             <div className="py-8 text-center text-xs text-slate-500 dark:text-slate-400 space-y-2">
               <Activity className="w-6 h-6 animate-pulse text-indigo-500 dark:text-indigo-400 mx-auto" />
-              <p>Pinging services across Docker network...</p>
+              <p>Pinging services...</p>
             </div>
           ) : !data || !data.services ? (
             <div className="text-center py-6 text-xs text-rose-500 dark:text-rose-400">

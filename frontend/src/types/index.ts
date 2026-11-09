@@ -19,8 +19,8 @@ export interface AgentTrace {
   sessionId: string;
   agentName: string;
   step: string;
-  input: any;
-  output: any;
+  input: Record<string, unknown>;
+  output: Record<string, unknown>;
   timestamp: string;
 }
 
@@ -54,7 +54,7 @@ export interface AgentCardInfo {
   status: AgentStateStatus;
   summary?: string;
   lastUpdated?: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 export interface PaginatedSessionsResponse {

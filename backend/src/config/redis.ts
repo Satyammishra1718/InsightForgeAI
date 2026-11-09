@@ -1,4 +1,5 @@
 import { Redis, RedisOptions } from 'ioredis';
+import type { ConnectionOptions } from 'bullmq';
 import { spawn, ChildProcess } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -41,6 +42,14 @@ export function getRedisConnectionOptions(): RedisOptions {
 }
 
 /**
+ * BullMQ accepts plain ioredis options at runtime (it creates its own connections), but its
+ * v6 typings only declare client instances. This narrow cast documents that interop.
+ */
+export function getBullMQConnection(): ConnectionOptions {
+  return parseRedisOptions(REDIS_URL) as unknown as ConnectionOptions;
+}
+
+/**
  * Ensures a Redis instance is available. If the configured Redis is not running
  * and local portable redis-server.exe is found, it automatically starts it.
  */
@@ -55,12 +64,15 @@ export async function ensureRedisServer(): Promise<void> {
       maxRetriesPerRequest: 1,
       retryStrategy: () => null, // don't retry on initial probe
     });
+    // A refused connection is the expected outcome when Redis isn't running yet; handle it
+    // here so ioredis doesn't log an "Unhandled error event" stack trace.
+    probe.on('error', () => undefined);
 
     await probe.ping();
     await probe.quit();
     console.log(`[Redis] Connected to active Redis server at ${options.host}:${options.port}`);
     return;
-  } catch (err) {
+  } catch {
     console.log(`[Redis] Server not running at ${options.host}:${options.port}. Checking local binary fallback...`);
   }
 
@@ -94,6 +106,7 @@ export async function ensureRedisServer(): Promise<void> {
           maxRetriesPerRequest: 1,
           retryStrategy: () => null,
         });
+        testClient.on('error', () => undefined);
         await testClient.ping();
         await testClient.quit();
         console.log(`[Redis] Embedded Redis server started successfully on port ${options.port}`);

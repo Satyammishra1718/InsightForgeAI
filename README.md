@@ -9,14 +9,14 @@
 ```
                                       +------------------------------------+
                                       |   React 19 + Tailwind Frontend     |
-                                      |   (Nginx Container on Port 80)     |
+                                      |   (Vite dev server on Port 5173)   |
                                       +-----------------+------------------+
                                                         |
                                           HTTP / REST   |   WebSocket (/ws)
                                                         v
                                       +-----------------+------------------+
                                       |    Node.js Express Backend API     |
-                                      |   (Port 5000 / WS Port 5001)       |
+                                      |   (Port 5000, WebSocket at /ws)    |
                                       +--------+-----------------+---------+
                                                |                 |
                    Enqueue Research Job        |                 |  Check Semantic
@@ -98,92 +98,61 @@
 
 ---
 
-## 🚀 Quick Start (Docker Compose)
+## 🚀 Quick Start (Local Development)
 
-The entire polyglot stack runs out of the box with Docker Compose. No local binaries or manual installation required.
+### Prerequisites
+- Node.js v20+ and npm v10+
+- Python 3.11+
+- Nothing else: Redis, MongoDB and ChromaDB start automatically for local development
+  (Redis from `backend/redis-bin`, an embedded MongoDB when `FORCE_LOCAL_DB=true`, and a
+  ChromaDB server from the Python virtualenv).
 
-### 1. Clone & Configure Environment
+### 1. Install
 
 ```bash
 git clone https://github.com/your-username/InsightForge-AI.git
 cd InsightForge-AI
+npm install               # Node workspaces: backend, frontend, MCP servers
+npm run setup:python      # creates agent-service/venv; installs LangGraph, FastAPI, MCP, ChromaDB
 cp .env.example .env
 ```
 
-Open `.env` and add your Groq API key (free tier, ultra-fast Llama 3.3 70B inference):
+### 2. Configure API keys in `.env`
+
 ```ini
 LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_...
-LLM_MODEL=llama-3.3-70b-versatile
-
-# Optional alternatives:
-OPENAI_API_KEY=sk-...
-TAVILY_API_KEY=tvly-...   # Optional: fallback web search used if omitted
+GROQ_API_KEY=gsk_...          # https://console.groq.com/keys (free tier)
+LLM_MODEL=openai/gpt-oss-120b
+TAVILY_API_KEY=tvly-...       # https://app.tavily.com (free tier); powers web search
 ```
 
-### 2. Launch Stack
+Embeddings need no key: `all-MiniLM-L6-v2` (384-dim) runs locally and is downloaded once
+(~90MB) into `data/models` on first use.
+
+### 3. Run everything
 
 ```bash
-docker compose up --build -d
+npm run dev
 ```
 
-### 3. Access Services
+This starts all six processes with prefixed logs: ChromaDB, the Python agent service, both
+MCP servers, the Node backend (API, WebSocket gateway and embedded BullMQ worker) and the
+React frontend. Open http://localhost:5173.
 
 | Service | URL / Port | Description |
 | :--- | :--- | :--- |
-| **Frontend Web App** | `http://localhost:80` | Production React UI (served by Nginx with reverse proxy) |
-| **Backend REST API** | `http://localhost:5000` | Node.js Express server (`/api/sessions`, `/api/health`) |
-| **WebSocket Gateway** | `ws://localhost:5000/ws` | Live agent progress streaming gateway |
-| **Python Agent Service** | `http://localhost:8000` | FastAPI LangGraph orchestration microservice (`/health`, `/run-research`) |
+| **Frontend Web App** | `http://localhost:5173` | React UI (Vite dev server; proxies `/api` and `/ws` to the backend) |
+| **Backend REST API** | `http://localhost:5000` | Node.js Express server (`/api/sessions`, `/api/health`, `/api/system/status`) |
+| **WebSocket Gateway** | `ws://localhost:5000/ws` | Live agent progress streaming |
+| **Python Agent Service** | `http://localhost:8000` | FastAPI + LangGraph orchestration (`/health`, `/run-research`) |
 | **MCP Web Search** | `http://localhost:4001/sse` | MCP tool server providing `web_search` |
 | **MCP Doc Retrieval** | `http://localhost:4002/sse` | MCP tool server providing `retrieve_context` |
-| **Redis** | `localhost:6379` | BullMQ message broker, pub/sub, & semantic cache |
-| **MongoDB** | `localhost:27017` | Document store for sessions, reports, and agent traces |
+| **ChromaDB** | `http://localhost:8001` | Vector database (HNSW, cosine) for document chunks |
+| **Redis** | `localhost:6380` | BullMQ broker, Pub/Sub and semantic cache |
+| **MongoDB** | embedded or `MONGODB_URI` | Sessions, reports and agent traces |
 
----
-
-## 🛠️ Local Development (Bare Metal)
-
-If developing without Docker:
-
-### Prerequisites
-- Node.js v20+ & npm v10+
-- Python 3.11+
-- Redis (native port 6380 or 6379)
-- MongoDB (or allow automatic fallback to embedded in-memory database)
-
-### Installation
-
-```bash
-# 1. Install root & Node workspaces dependencies
-npm install
-
-# 2. Setup Python Agent Service virtual environment
-cd agent-service
-python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
-pip install -r requirements.txt
-cd ..
-
-# 3. Build TypeScript packages
-npm run build
-```
-
-### Running Services
-
-```bash
-# Terminal 1: Python FastAPI Agent Service
-cd agent-service && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Terminal 2: Node Backend & Embedded Worker
-npm run dev --workspace=backend
-
-# Terminal 3: React Frontend
-npm run dev --workspace=frontend
-```
+Individual services can also be started on their own: `npm run chroma`, `npm run dev:agent`,
+`npm run dev:mcp-web`, `npm run dev:mcp-doc`, `npm run dev:backend`, `npm run dev:frontend`.
 
 ---
 
@@ -284,8 +253,8 @@ InsightForge-AI/
 ├── mcp-servers/
 │   ├── web-search/              # MCP Server: Tavily / DuckDuckGo web search
 │   └── doc-retrieval/           # MCP Server: ChromaDB hybrid document retrieval
-├── docker/                      # Dockerfiles and Nginx reverse proxy configuration
-├── docker-compose.yml           # Authoritative orchestration for all 8 services
+├── scripts/venv.mjs             # Runs agent-service/venv tools (uvicorn, chroma) cross-platform
+├── data/                        # Local runtime data (ChromaDB, embedding model cache); gitignored
 └── README.md                    # Project documentation & architectural guide
 ```
 

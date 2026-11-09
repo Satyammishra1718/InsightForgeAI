@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 // Load root .env first if available, then local
 // Capture PORT before loading the shared root .env: that file's PORT belongs to the
 // backend (5000), and inheriting it made this server steal the backend's port.
-const containerPort = process.env.PORT;
+const ownPort = process.env.PORT;
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 dotenv.config();
 
@@ -184,7 +184,7 @@ export function createWebSearchMcpServer() {
   return { app, createServerInstance };
 }
 
-const PORT = parseInt(process.env.MCP_WEB_SEARCH_PORT || containerPort || '4001', 10);
+const PORT = parseInt(process.env.MCP_WEB_SEARCH_PORT || ownPort || '4001', 10);
 
 if (process.argv[1] && process.argv[1].endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {
   const { app } = createWebSearchMcpServer();

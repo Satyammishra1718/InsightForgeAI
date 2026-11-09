@@ -36,17 +36,18 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Retrie
   if (!sessionId) {
     return [];
   }
-  const sessionDocs = await collection.get({ where: { sessionId } });
+  const { embedding: queryEmbedding, model: embeddingModel } =
+    await EmbeddingService.embedTextWithModel(query);
   const whereFilter: Record<string, unknown> = { sessionId };
+  // Only documents embedded with the query's model are searchable in the same vector space.
+  const sessionDocs = await collection.get({ where: whereFilter, embeddingModel });
 
   if (sessionDocs.length === 0) {
     return [];
   }
 
-  // 2. Vector Semantic Similarity Search
+  // 2. Vector Semantic Similarity Search (ChromaDB HNSW, cosine)
   const candidateLimit = Math.max(topK * 3, 10);
-  const { embedding: queryEmbedding, model: embeddingModel } =
-    await EmbeddingService.embedTextWithModel(query);
 
   const vectorQueryResults = await collection.query({
     queryEmbeddings: [queryEmbedding],

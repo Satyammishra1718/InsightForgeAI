@@ -106,7 +106,7 @@ async function verifyChecklist() {
   // Point 2: Embeddings successfully generated and stored in ChromaDB
   // ------------------------------------------------------------------
   console.log(
-    '▶ [CHECK 2/5] Embeddings generated and stored in Vector Store (ChromaDB-compatible)...',
+    '▶ [CHECK 2/5] Embeddings generated and stored in ChromaDB...',
   );
   const collection = vectorStore.getOrCreateCollection('insightforge_research');
 
@@ -146,7 +146,7 @@ async function verifyChecklist() {
     documents: testTexts,
   });
 
-  const storedItems = await collection.get({ ids: itemIds });
+  const storedItems = await collection.get({ ids: itemIds, includeEmbeddings: true });
   console.log(`  - Retrieved stored items count: ${storedItems.length}`);
   console.log(`  - First stored item ID: ${storedItems[0]?.id}`);
   console.log(`  - First stored item embedding length: ${storedItems[0]?.embedding?.length}`);

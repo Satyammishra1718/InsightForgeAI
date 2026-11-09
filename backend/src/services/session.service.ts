@@ -1,3 +1,4 @@
+import { vectorStore } from '../rag/vectorStore.js';
 import { ResearchSession, ResearchSessionDocument, Report, AgentTrace } from '../models/index.js';
 import { NotFoundError } from '../errors/AppError.js';
 import { CreateSessionInput, ListSessionsQuery } from '../validators/session.validator.js';
@@ -98,6 +99,12 @@ export class SessionService {
       session.deleteOne(),
       Report.deleteMany({ sessionId: id }),
       AgentTrace.deleteMany({ sessionId: id }),
+      // Remove the session's document chunks from ChromaDB too (best effort: a vector
+      // store outage must not block deleting the session itself).
+      vectorStore
+        .getOrCreateCollection()
+        .delete({ where: { sessionId: id } })
+        .catch((err) => console.warn('[SessionService] Could not delete session vectors:', err)),
     ]);
 
     return {

@@ -1,5 +1,5 @@
 import { Queue } from 'bullmq';
-import { getRedisConnectionOptions, ensureRedisServer } from '../config/redis.js';
+import { getBullMQConnection, ensureRedisServer } from '../config/redis.js';
 
 export interface ResearchJobData {
   sessionId: string;
@@ -7,13 +7,13 @@ export interface ResearchJobData {
   cacheable?: boolean;
 }
 
-let researchQueueInstance: Queue<ResearchJobData> | null = null;
+let researchQueueInstance: Queue<ResearchJobData, unknown, string, ResearchJobData> | null = null;
 
-export async function getResearchQueue(): Promise<Queue<ResearchJobData>> {
+export async function getResearchQueue(): Promise<Queue<ResearchJobData, unknown, string, ResearchJobData>> {
   if (!researchQueueInstance) {
     await ensureRedisServer();
-    researchQueueInstance = new Queue<ResearchJobData>('research', {
-      connection: getRedisConnectionOptions() as any,
+    const queue = new Queue<ResearchJobData, unknown, string, ResearchJobData>('research', {
+      connection: getBullMQConnection(),
       defaultJobOptions: {
         attempts: 2,
         backoff: {
@@ -28,9 +28,10 @@ export async function getResearchQueue(): Promise<Queue<ResearchJobData>> {
           age: 86400, // keep failed jobs for 24 hours
         },
       },
-    }) as any;
+    });
+    researchQueueInstance = queue;
   }
-  return researchQueueInstance!;
+  return researchQueueInstance;
 }
 
 /**

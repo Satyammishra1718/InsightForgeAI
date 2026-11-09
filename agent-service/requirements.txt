@@ -10,5 +10,11 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 redis>=5.0.0
 mcp>=1.9.0
+# ChromaDB server (run via "npm run chroma"); the backend talks to it over HTTP
+chromadb>=1.0.0
+# Tests (live tests need the full stack running: npm run dev)
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
+websockets>=12.0
+# Browser test also needs: python -m playwright install chromium
+playwright>=1.40.0

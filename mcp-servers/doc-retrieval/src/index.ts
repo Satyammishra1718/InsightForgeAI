@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 // Load root .env first if available, then local
 // Capture PORT before loading the shared root .env: that file's PORT belongs to the
 // backend (5000), and inheriting it made this server steal the backend's port.
-const containerPort = process.env.PORT;
+const ownPort = process.env.PORT;
 dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
 dotenv.config();
 
@@ -33,7 +33,7 @@ export interface RetrievedContext {
 
 /**
  * Retrieves relevant document chunks for a session query,
- * attempting backend REST API (e.g. in Docker or running backend) or dynamic RAG module fallback.
+ * attempting backend REST API (running backend) or dynamic RAG module fallback.
  */
 export async function retrieveDocumentContext(
   sessionId: string,
@@ -164,7 +164,7 @@ export function createDocRetrievalMcpServer() {
   return { app, createServerInstance };
 }
 
-const PORT = parseInt(process.env.MCP_DOC_RETRIEVAL_PORT || containerPort || '4002', 10);
+const PORT = parseInt(process.env.MCP_DOC_RETRIEVAL_PORT || ownPort || '4002', 10);
 
 if (process.argv[1] && process.argv[1].endsWith('index.ts') || process.argv[1]?.endsWith('index.js')) {
   const { app } = createDocRetrievalMcpServer();

@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "node --watch --import tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "eslint src",
     "seed": "tsx src/scripts/seed.ts",
     "test": "tsx src/tests/run-tests.ts",
     "worker": "node dist/worker.js",
-    "worker:dev": "tsx src/worker.ts",
+    "worker:dev": "node --watch --import tsx src/worker.ts",
     "test:api": "tsx src/scripts/test-endpoints.ts",
     "test:rag": "tsx src/scripts/test-rag.ts",
     "test:migration": "tsx src/scripts/test-langgraph-migration.ts",
@@ -35,7 +35,6 @@
     "openai": "^7.23.0",
     "pdf-parse": "^2.4.5",
     "pino": "^10.3.1",
-    "redis-memory-server": "^0.17.1",
     "ws": "^8.18.0",
     "zod": "^4.6.5"
   },
@@ -54,6 +53,6 @@
     "supertest": "^7.3.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
-    "typescript-eslint": "^8.24.0"
+    "typescript-eslint": "^8.72.1"
   }
 }

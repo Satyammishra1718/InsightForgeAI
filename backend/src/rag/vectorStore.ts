@@ -1,16 +1,22 @@
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { config } from '../config/index.js';
+import type { Collection, Metadata, Where } from 'chromadb';
+import { getChromaClient, ensureChromaServer } from '../config/chroma.js';
+import { EMBEDDING_DIMENSIONS, MINILM_EMBEDDING_MODEL } from './embeddings.js';
 import { ChunkMetadata, VectorSearchResult } from './types.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/**
+ * ChromaDB-backed vector store.
+ *
+ * A logical collection (e.g. "insightforge_research") maps to one physical Chroma collection
+ * per embedding model ("insightforge_research__all-MiniLM-L6-v2"). Chroma fixes a collection's
+ * vector dimension on first insert, and vectors from different models must never be compared,
+ * so partitioning by model keeps queries correct when the embedding provider changes.
+ * Similarity search uses Chroma's HNSW index in cosine space.
+ */
 
 export interface VectorItem {
   id: string;
   embedding: number[];
-  /** Model that produced `embedding`. Vectors from different models are never compared. */
+  /** Model that produced `embedding`. */
   embeddingModel?: string;
   metadata: ChunkMetadata;
   document: string;
@@ -18,79 +24,80 @@ export interface VectorItem {
 
 export interface CollectionQueryOptions {
   queryEmbeddings: number[][];
-  /** Only compare against items embedded with this model. */
+  /** Model that produced the query embeddings; selects the matching physical collection. */
   embeddingModel?: string;
   nResults?: number;
   where?: Record<string, unknown>;
 }
 
-export class LocalCollection {
-  public readonly name: string;
-  private items: Map<string, VectorItem> = new Map();
-  private filePath: string;
+const ADD_BATCH_SIZE = 256;
+const KNOWN_MODELS = Object.keys(EMBEDDING_DIMENSIONS);
 
-  constructor(name: string, storageDir: string) {
-    this.name = name;
-    this.filePath = path.join(storageDir, `${name}.json`);
-    this.loadFromDisk();
+function physicalName(logical: string, model: string): string {
+  return `${logical}__${model}`.replace(/[^a-zA-Z0-9._-]/g, '-');
+}
+
+/** Chroma metadata values must be string | number | boolean; drop or stringify the rest. */
+function toChromaMetadata(meta: ChunkMetadata, embeddingModel: string): Metadata {
+  const out: Metadata = { embeddingModel };
+  for (const [k, v] of Object.entries(meta)) {
+    if (v === undefined || v === null) continue;
+    out[k] = typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? v : JSON.stringify(v);
   }
+  return out;
+}
 
-  private loadFromDisk(): void {
-    if (fs.existsSync(this.filePath)) {
-      try {
-        const raw = fs.readFileSync(this.filePath, 'utf-8');
-        const parsed: VectorItem[] = JSON.parse(raw);
-        for (const item of parsed) {
-          this.items.set(item.id, item);
-        }
-      } catch (err) {
-        console.warn(`[VectorStore] Could not load collection '${this.name}' from disk:`, err);
-      }
-    }
-  }
+function fromChromaMetadata(meta: Metadata | null | undefined): ChunkMetadata {
+  const rest: Record<string, unknown> = { ...(meta ?? {}) };
+  delete rest.embeddingModel;
+  return rest as ChunkMetadata;
+}
 
-  private saveToDisk(): void {
-    // Unique temp name per write: a shared "<file>.tmp" let two processes (API server,
-    // scripts, MCP doc-retrieval fallback) overwrite each other's half-written temp file.
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+/** Translate a flat equality filter into Chroma's where syntax. */
+function toWhere(where?: Record<string, unknown>): Where | undefined {
+  const entries = Object.entries(where ?? {}).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return undefined;
+  const clauses = entries.map(([k, v]) => ({ [k]: v })) as Where[];
+  return clauses.length === 1 ? clauses[0] : ({ $and: clauses } as Where);
+}
+
+export class ChromaCollection {
+  private physical = new Map<string, Collection>();
+
+  constructor(public readonly name: string) {}
+
+  private async collectionFor(model: string, create: boolean): Promise<Collection | null> {
+    const cached = this.physical.get(model);
+    if (cached) return cached;
+    await ensureChromaServer();
+    const client = getChromaClient();
+    const name = physicalName(this.name, model);
     try {
-      const itemsArray = Array.from(this.items.values());
-      fs.writeFileSync(tempPath, JSON.stringify(itemsArray, null, 2), 'utf-8');
-      LocalCollection.replaceFile(tempPath, this.filePath);
+      const col = create
+        ? await client.getOrCreateCollection({
+            name,
+            metadata: { 'hnsw:space': 'cosine', embeddingModel: model },
+            embeddingFunction: null,
+          })
+        : await client.getCollection({ name });
+      this.physical.set(model, col);
+      return col;
     } catch (err) {
-      console.error(`[VectorStore] Failed to persist collection '${this.name}' to disk:`, err);
-      try {
-        fs.rmSync(tempPath, { force: true });
-      } catch {
-        // best effort cleanup
-      }
+      if (create) throw err;
+      return null; // collection for this model doesn't exist yet
     }
   }
 
-  /**
-   * Atomically replace target with source. On Windows, rename fails with EPERM/EBUSY/EACCES
-   * while another process, an antivirus scanner or OneDrive sync briefly holds the target
-   * open, so retry with backoff and finally fall back to a copy.
-   */
-  private static replaceFile(source: string, target: string): void {
-    const transient = new Set(['EPERM', 'EBUSY', 'EACCES']);
-    for (let attempt = 0; attempt < 6; attempt++) {
-      try {
-        fs.renameSync(source, target);
-        return;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code ?? '';
-        if (!transient.has(code)) throw err;
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * 2 ** attempt);
-      }
+  private async existingCollections(): Promise<Array<[string, Collection]>> {
+    const out: Array<[string, Collection]> = [];
+    for (const model of KNOWN_MODELS) {
+      const col = await this.collectionFor(model, false);
+      if (col) out.push([model, col]);
     }
-    fs.copyFileSync(source, target);
-    fs.rmSync(source, { force: true });
+    return out;
   }
 
-  /**
-   * Adds or updates items in the collection
-   */
+  /** Adds or updates items (upsert). */
   public async add(params: {
     ids: string[];
     embeddings: number[][];
@@ -98,205 +105,119 @@ export class LocalCollection {
     documents: string[];
     embeddingModel?: string;
   }): Promise<void> {
-    const { ids, embeddings, metadatas, documents, embeddingModel } = params;
-
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i];
-      const embedding = embeddings[i];
-      const metadata = metadatas[i];
-      const document = documents[i];
-
-      this.items.set(id, {
-        id,
-        embedding,
-        embeddingModel,
-        metadata,
-        document,
+    const model = params.embeddingModel ?? MINILM_EMBEDDING_MODEL;
+    const col = (await this.collectionFor(model, true))!;
+    for (let i = 0; i < params.ids.length; i += ADD_BATCH_SIZE) {
+      const end = i + ADD_BATCH_SIZE;
+      await col.upsert({
+        ids: params.ids.slice(i, end),
+        embeddings: params.embeddings.slice(i, end),
+        documents: params.documents.slice(i, end),
+        metadatas: params.metadatas.slice(i, end).map((m) => toChromaMetadata(m, model)),
       });
     }
-
-    this.saveToDisk();
   }
 
-  /**
-   * Queries collection using cosine similarity with optional metadata filtering
-   */
+  /** Nearest-neighbour search (cosine) within the collection for the query's embedding model. */
   public async query(options: CollectionQueryOptions): Promise<VectorSearchResult[][]> {
-    const { queryEmbeddings, nResults = 5, where, embeddingModel } = options;
-    const queryDim = queryEmbeddings[0]?.length;
-    // Comparing vectors from different embedding models (or dimensions) yields meaningless
-    // scores, so restrict the search to items produced by the same model.
-    const allItems = Array.from(this.items.values()).filter(
-      (item) =>
-        item.embedding.length === queryDim &&
-        (!embeddingModel || !item.embeddingModel || item.embeddingModel === embeddingModel),
-    );
+    const { queryEmbeddings, nResults = 5, where } = options;
+    const col = await this.collectionFor(options.embeddingModel ?? MINILM_EMBEDDING_MODEL, false);
+    if (!col || queryEmbeddings.length === 0) return queryEmbeddings.map(() => []);
 
-    // Filter items if 'where' metadata filter is present
-    const filteredItems = where
-      ? allItems.filter((item) => {
-          for (const [key, val] of Object.entries(where)) {
-            if (item.metadata[key] !== val) {
-              return false;
-            }
-          }
-          return true;
-        })
-      : allItems;
+    const res = await col.query({
+      queryEmbeddings,
+      nResults,
+      where: toWhere(where),
+      include: ['documents', 'metadatas', 'distances'],
+    });
 
-    const resultsPerQuery: VectorSearchResult[][] = [];
-
-    for (const queryVec of queryEmbeddings) {
-      const scored = filteredItems.map((item) => {
-        const similarity = this.cosineSimilarity(queryVec, item.embedding);
+    return res.ids.map((ids, q) =>
+      ids.map((id, i) => {
+        const distance = res.distances?.[q]?.[i] ?? 1;
         return {
-          id: item.id,
-          document: item.document,
-          metadata: item.metadata,
-          similarity,
-          distance: 1 - similarity,
+          id,
+          document: res.documents?.[q]?.[i] ?? '',
+          metadata: fromChromaMetadata(res.metadatas?.[q]?.[i]),
+          // Chroma cosine distance = 1 - cosine similarity
+          similarity: 1 - distance,
+          distance,
         };
-      });
-
-      // Sort descending by similarity
-      scored.sort((a, b) => b.similarity - a.similarity);
-      resultsPerQuery.push(scored.slice(0, nResults));
-    }
-
-    return resultsPerQuery;
+      }),
+    );
   }
 
-  /**
-   * Retrieves items matching filter or ids
-   */
+  /** Retrieves items by ids and/or metadata filter. */
   public async get(params?: {
     ids?: string[];
     where?: Record<string, unknown>;
+    embeddingModel?: string;
+    includeEmbeddings?: boolean;
   }): Promise<VectorItem[]> {
-    let items = Array.from(this.items.values());
+    const targets = params?.embeddingModel
+      ? await Promise.all([this.collectionFor(params.embeddingModel, false)]).then((c) =>
+          c[0] ? ([[params.embeddingModel!, c[0]]] as Array<[string, Collection]>) : [],
+        )
+      : await this.existingCollections();
 
-    if (params?.ids && params.ids.length > 0) {
-      const idSet = new Set(params.ids);
-      items = items.filter((item) => idSet.has(item.id));
-    }
-
-    if (params?.where) {
-      items = items.filter((item) => {
-        for (const [key, val] of Object.entries(params.where!)) {
-          if (item.metadata[key] !== val) {
-            return false;
-          }
-        }
-        return true;
+    const items: VectorItem[] = [];
+    for (const [model, col] of targets) {
+      const res = await col.get({
+        ids: params?.ids && params.ids.length > 0 ? params.ids : undefined,
+        where: toWhere(params?.where),
+        include: params?.includeEmbeddings
+          ? ['documents', 'metadatas', 'embeddings']
+          : ['documents', 'metadatas'],
+      });
+      res.ids.forEach((id, i) => {
+        items.push({
+          id,
+          embedding: (res.embeddings?.[i] as number[] | undefined) ?? [],
+          embeddingModel: model,
+          metadata: fromChromaMetadata(res.metadatas?.[i]),
+          document: res.documents?.[i] ?? '',
+        });
       });
     }
-
     return items;
   }
 
-  /**
-   * Deletes items matching filter or ids
-   */
-  public async delete(params: {
-    ids?: string[];
-    where?: Record<string, unknown>;
-  }): Promise<number> {
-    let deletedCount = 0;
+  /** Deletes items matching ids or a metadata filter, across all embedding models. */
+  public async delete(params: { ids?: string[]; where?: Record<string, unknown> }): Promise<number> {
+    const hasIds = !!params.ids && params.ids.length > 0;
+    const where = toWhere(params.where);
+    if (!hasIds && !where) return 0; // never wipe a whole collection by accident
 
-    if (params.ids && params.ids.length > 0) {
-      for (const id of params.ids) {
-        if (this.items.delete(id)) {
-          deletedCount++;
-        }
-      }
-    } else if (params.where) {
-      for (const [id, item] of Array.from(this.items.entries())) {
-        let match = true;
-        for (const [key, val] of Object.entries(params.where)) {
-          if (item.metadata[key] !== val) {
-            match = false;
-            break;
-          }
-        }
-        if (match) {
-          this.items.delete(id);
-          deletedCount++;
-        }
+    let deleted = 0;
+    for (const [, col] of await this.existingCollections()) {
+      const matching = await col.get({ ids: hasIds ? params.ids : undefined, where, include: [] });
+      if (matching.ids.length > 0) {
+        await col.delete({ ids: matching.ids });
+        deleted += matching.ids.length;
       }
     }
-
-    if (deletedCount > 0) {
-      this.saveToDisk();
-    }
-
-    return deletedCount;
+    return deleted;
   }
 
-  public count(where?: Record<string, unknown>): number {
-    if (!where) return this.items.size;
-    return Array.from(this.items.values()).filter((item) => {
-      for (const [k, v] of Object.entries(where)) {
-        if (item.metadata[k] !== v) return false;
-      }
-      return true;
-    }).length;
-  }
-
-  private cosineSimilarity(vecA: number[], vecB: number[]): number {
-    let dot = 0;
-    let normA = 0;
-    let normB = 0;
-    const len = Math.min(vecA.length, vecB.length);
-
-    for (let i = 0; i < len; i++) {
-      dot += vecA[i] * vecB[i];
-      normA += vecA[i] * vecA[i];
-      normB += vecB[i] * vecB[i];
+  public async count(where?: Record<string, unknown>): Promise<number> {
+    let total = 0;
+    for (const [, col] of await this.existingCollections()) {
+      total += where ? (await col.get({ where: toWhere(where), include: [] })).ids.length : await col.count();
     }
-
-    if (normA === 0 || normB === 0) return 0;
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    return total;
   }
 }
 
-/**
- * Local Embedded ChromaDB-compatible Vector Store
- * Stores vector collections locally on disk without requiring any external server.
- */
-export class LocalVectorStore {
-  private static instance: LocalVectorStore | null = null;
-  private collections: Map<string, LocalCollection> = new Map();
-  private storageDir: string;
+export class ChromaVectorStore {
+  private collections = new Map<string, ChromaCollection>();
 
-  constructor(customPath?: string) {
-    const resolvedPath = customPath || config.vectorDbPath || './data/vector_db';
-    this.storageDir = path.isAbsolute(resolvedPath)
-      ? resolvedPath
-      : path.resolve(__dirname, '../../../', resolvedPath);
-
-    if (!fs.existsSync(this.storageDir)) {
-      fs.mkdirSync(this.storageDir, { recursive: true });
-    }
-  }
-
-  public static getInstance(): LocalVectorStore {
-    if (!LocalVectorStore.instance) {
-      LocalVectorStore.instance = new LocalVectorStore();
-    }
-    return LocalVectorStore.instance;
-  }
-
-  public getOrCreateCollection(name = 'insightforge_research'): LocalCollection {
-    if (!this.collections.has(name)) {
-      const col = new LocalCollection(name, this.storageDir);
+  public getOrCreateCollection(name = 'insightforge_research'): ChromaCollection {
+    let col = this.collections.get(name);
+    if (!col) {
+      col = new ChromaCollection(name);
       this.collections.set(name, col);
     }
-    return this.collections.get(name)!;
-  }
-
-  public getStorageDirectory(): string {
-    return this.storageDir;
+    return col;
   }
 }
 
-export const vectorStore = LocalVectorStore.getInstance();
+export const vectorStore = new ChromaVectorStore();

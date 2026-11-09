@@ -1,5 +1,7 @@
 import assert from 'node:assert';
 import http from 'http';
+import type { AddressInfo } from 'net';
+import type { ChildProcess } from 'child_process';
 import { WebSocket } from 'ws';
 import request from 'supertest';
 import { createApp } from '../app.js';
@@ -9,9 +11,8 @@ import { wsServer } from '../websocket/server.js';
 import { startResearchWorker, closeResearchWorker } from '../queue/research.worker.js';
 import { closeResearchQueue } from '../queue/research.queue.js';
 import { ResearchSession, Report, AgentTrace } from '../models/index.js';
-import { SemanticCacheService } from '../services/semanticCache.service.js';
 
-let pythonProcess: any = null;
+let pythonProcess: ChildProcess | null = null;
 
 async function ensurePythonAgentService(): Promise<void> {
   const agentUrl = process.env.AGENT_SERVICE_URL || 'http://127.0.0.1:8000';
@@ -85,7 +86,7 @@ export async function runFullQASuite() {
   await new Promise<void>((resolve) => {
     server.listen(0, () => resolve());
   });
-  const address = server.address() as any;
+  const address = server.address() as AddressInfo;
   const port = address.port;
   console.log(`[QA:Setup] HTTP & WebSocket test gateway listening on port ${port}\n`);
 
@@ -117,7 +118,7 @@ export async function runFullQASuite() {
   console.log(`✓ 1.1 POST /api/sessions created session: ${s1Id}`);
 
   // Connect WebSocket subscriber
-  const ws1Events: any[] = [];
+  const ws1Events: Array<Record<string, unknown>> = [];
   const wsClient1 = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   await new Promise<void>((r) => wsClient1.on('open', () => r()));
   wsClient1.on('message', (raw) => {
@@ -195,7 +196,10 @@ export async function runFullQASuite() {
 
   const traces3 = await AgentTrace.find({ sessionId: s3Id, agentName: 'Critic' });
   assert(traces3.length > 0, 'Critic trace must exist');
-  const criticOutput = traces3[0].output as any;
+  const criticOutput = traces3[0].output as {
+    flaggedCount: number;
+    flaggedClaims?: Array<{ claim?: string; reason?: string }>;
+  };
   assert(criticOutput.flaggedCount >= 1, `Critic must flag unsupported claim (got ${criticOutput.flaggedCount})`);
   console.log(`✓ 3.1 Critic Agent isolated and flagged unsupported claim: "${criticOutput.flaggedClaims?.[0]?.claim?.slice(0, 60)}..."`);
   console.log(`✓ 3.2 Critic recorded rationale: "${criticOutput.flaggedClaims?.[0]?.reason?.slice(0, 80)}..."`);
@@ -237,8 +241,8 @@ export async function runFullQASuite() {
   const sAId = sARes.body.session._id;
   const sBId = sBRes.body.session._id;
 
-  const wsAEvents: any[] = [];
-  const wsBEvents: any[] = [];
+  const wsAEvents: Array<Record<string, unknown>> = [];
+  const wsBEvents: Array<Record<string, unknown>> = [];
   const wsA = new WebSocket(`ws://127.0.0.1:${port}/ws`);
   const wsB = new WebSocket(`ws://127.0.0.1:${port}/ws`);
 
@@ -314,8 +318,8 @@ export async function runFullQASuite() {
   const sysStatusRes = await request(app).get('/api/system/status');
   assert.strictEqual(sysStatusRes.status, 200);
   assert(sysStatusRes.body.services.length >= 3);
-  const mongoCheck = sysStatusRes.body.services.find((s: any) => s.name.includes('MongoDB'));
-  const redisCheck = sysStatusRes.body.services.find((s: any) => s.name.includes('Redis'));
+  const mongoCheck = sysStatusRes.body.services.find((s: { name: string }) => s.name.includes('MongoDB'));
+  const redisCheck = sysStatusRes.body.services.find((s: { name: string }) => s.name.includes('Redis'));
   assert.strictEqual(mongoCheck.status, 'healthy');
   assert.strictEqual(redisCheck.status, 'healthy');
   console.log(`✓ 6.2 System status probe returned 200 OK (${sysStatusRes.body.services.length} microservices checked)`);
