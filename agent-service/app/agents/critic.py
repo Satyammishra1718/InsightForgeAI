@@ -11,6 +11,11 @@ from ..utils.json_cleaner import parse_json_safely, extract_claims_from_raw_text
 
 logger = logging.getLogger("agent-service.critic")
 
+# Prompt budgets in characters (~4 chars per token): ~2,500 tokens of evidence plus
+# ~1,000 tokens of findings keeps the Critic request well under an 8k TPM limit.
+EVIDENCE_CHAR_BUDGET = 10_000
+FINDINGS_CHAR_BUDGET = 4_000
+
 CRITIC_SYSTEM_PROMPT = """You are a rigorous Scientific Critic and Verification Agent.
 You are given researcher findings AND the raw source evidence (numbered excerpts) each finding was based on.
 Extract 3 to 6 focused factual claims from the findings and check each one AGAINST THE EVIDENCE EXCERPTS.
@@ -46,17 +51,26 @@ async def critic_node(state: GraphState) -> Dict[str, Any]:
         extra={"findingsCount": len(findings)}
     )
 
+    # Keep the whole prompt within a fixed budget. With real web results the evidence can run
+    # to tens of thousands of characters, and a single request larger than the provider's
+    # tokens-per-minute limit (8k on Groq's free tier) can never succeed, however often it's
+    # retried. The budget is shared evenly across every source so each one is still represented.
+    total_sources = sum(len(f.get("sources", [])) for f in findings) or 1
+    per_source_chars = max(200, min(1500, EVIDENCE_CHAR_BUDGET // total_sources))
+    per_finding_chars = max(300, min(1500, FINDINGS_CHAR_BUDGET // max(len(findings), 1)))
+
     def _format_evidence(sources: List[Dict[str, Any]]) -> str:
         if not sources:
             return "  (no evidence retrieved)"
         return "\n".join(
-            f"  [{i + 1}] {s.get('title', 'Source')} ({s.get('url', '')}): {str(s.get('snippet', ''))[:1500]}"
+            f"  [{i + 1}] {s.get('title', 'Source')} ({s.get('url', '')}): "
+            f"{' '.join(str(s.get('snippet', '')).split())[:per_source_chars]}"
             for i, s in enumerate(sources)
         )
 
     findings_text = "\n\n".join([
         f"SubQuestion: {f.get('subQuestion')}\n"
-        f"Findings: {f.get('findings')}\n"
+        f"Findings: {str(f.get('findings', ''))[:per_finding_chars]}\n"
         f"Evidence excerpts:\n{_format_evidence(f.get('sources', []))}"
         for f in findings
     ])
@@ -67,15 +81,21 @@ async def critic_node(state: GraphState) -> Dict[str, Any]:
     llm = get_chat_model(temperature=0.1)
     if llm and findings:
         await acquire_llm_permit()
-        resp = await invoke_llm(
-            llm=llm,
-            messages=[
-                SystemMessage(content=CRITIC_SYSTEM_PROMPT),
-                HumanMessage(content=f"Verify claims from these findings:\n{findings_text}")
-            ],
-            agent_name="Critic"
-        )
-        content = resp.content
+        try:
+            resp = await invoke_llm(
+                llm=llm,
+                messages=[
+                    SystemMessage(content=CRITIC_SYSTEM_PROMPT),
+                    HumanMessage(content=f"Verify claims from these findings:\n{findings_text}")
+                ],
+                agent_name="Critic"
+            )
+            content = resp.content
+        except Exception as e:
+            # A failed verification must not throw away the whole run: the claims fall through
+            # to the UNVERIFIED path below and the report is labelled accordingly.
+            logger.warning(f"[Critic] Verification call failed ({e}); passing findings through as UNVERIFIED.")
+            content = None
         if isinstance(content, str):
             parsed = parse_json_safely(content)
             if isinstance(parsed, dict):
@@ -105,14 +125,14 @@ async def critic_node(state: GraphState) -> Dict[str, Any]:
         if not verified_claims and not flagged_claims:
             # The critic's output was unusable. Do NOT pretend these were verified:
             # carry the findings forward explicitly labelled as unverified.
-            logger.warning("[Critic] Could not parse critic output; passing findings through as UNVERIFIED.")
+            logger.warning("[Critic] No usable critic output; passing findings through as UNVERIFIED.")
             for f in findings:
                 f_text = f.get("findings", "")
                 if f_text:
                     verified_claims.append({
                         "claim": f_text[:200].strip(),
                         "status": "unverified",
-                        "reason": "Critic output could not be parsed; claim was not independently checked against evidence.",
+                        "reason": "Critic verification was unavailable; claim was not independently checked against evidence.",
                         "sources": f.get("sources", [])
                     })
 
