@@ -30,14 +30,14 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Retrie
 
   const collection = vectorStore.getOrCreateCollection(collectionName);
 
-  // 1. Get all documents for this sessionId (or fallback to full collection if none found)
-  let sessionDocs = sessionId ? await collection.get({ where: { sessionId } }) : [];
-  let whereFilter: Record<string, unknown> | undefined = sessionId ? { sessionId } : undefined;
-
-  if (sessionDocs.length === 0) {
-    sessionDocs = await collection.get();
-    whereFilter = undefined;
+  // 1. Scope retrieval strictly to this session's documents. Falling back to the whole
+  // collection leaked other sessions' uploads into unrelated reports and let stale
+  // seed documents be cited as if they were evidence for this query.
+  if (!sessionId) {
+    return [];
   }
+  const sessionDocs = await collection.get({ where: { sessionId } });
+  const whereFilter: Record<string, unknown> = { sessionId };
 
   if (sessionDocs.length === 0) {
     return [];
@@ -45,10 +45,12 @@ export async function hybridSearch(options: HybridSearchOptions): Promise<Retrie
 
   // 2. Vector Semantic Similarity Search
   const candidateLimit = Math.max(topK * 3, 10);
-  const queryEmbedding = await EmbeddingService.embedText(query);
+  const { embedding: queryEmbedding, model: embeddingModel } =
+    await EmbeddingService.embedTextWithModel(query);
 
   const vectorQueryResults = await collection.query({
     queryEmbeddings: [queryEmbedding],
+    embeddingModel,
     nResults: candidateLimit,
     where: whereFilter,
   });

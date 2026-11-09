@@ -4,6 +4,9 @@ import { config } from './config/index.js';
 import { connectDatabase, disconnectDatabase, getDatabaseInfo } from './config/database.js';
 import { wsServer } from './websocket/server.js';
 import { ResearchSession } from './models/index.js';
+import { startResearchWorker, closeResearchWorker, closeResearchQueue } from './queue/index.js';
+import { closeRedis } from './config/redis.js';
+import { EmbeddingService } from './rag/embeddings.js';
 
 const app = createApp();
 const server = http.createServer(app);
@@ -36,7 +39,23 @@ async function startServer(): Promise<void> {
     );
   }
 
-  // 3. Start HTTP & WebSocket Server
+  if (process.env.RUN_EMBEDDED_WORKER !== 'false') {
+    try {
+      // 3. Start BullMQ background worker (in-process for single-service dev)
+      await startResearchWorker(3);
+      console.log('[Startup] Embedded BullMQ research worker running.');
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Startup] Warning: Could not start BullMQ research worker (${errorMsg}).`);
+    }
+  } else {
+    console.log('[Startup] Standalone worker configured (RUN_EMBEDDED_WORKER=false).');
+  }
+
+  // Load the local embedding model in the background so the first query is fast.
+  void EmbeddingService.warmUp();
+
+  // 4. Start HTTP & WebSocket Server
   server.listen(config.port, () => {
     console.log(`[InsightForge-AI] Server running on http://localhost:${config.port}`);
     console.log(`[InsightForge-AI] Health check: http://localhost:${config.port}/api/health`);
@@ -48,6 +67,10 @@ async function startServer(): Promise<void> {
 // Graceful Shutdown Handlers
 async function handleShutdown(signal: string): Promise<void> {
   console.log(`\n[Shutdown] Received ${signal}. Starting graceful shutdown...`);
+  await closeResearchWorker().catch(() => null);
+  await closeResearchQueue().catch(() => null);
+  await closeRedis().catch(() => null);
+
   server.close(async () => {
     console.log('[Shutdown] HTTP server closed.');
     await disconnectDatabase();

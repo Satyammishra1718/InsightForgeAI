@@ -153,13 +153,13 @@ async function verifyChecklist() {
 
   if (
     embeddings.length === 2 &&
-    embeddings[0].length === 1536 &&
+    embeddings[0].length === 384 &&
     storedItems.length === 2 &&
-    storedItems[0].embedding.length === 1536
+    storedItems[0].embedding.length === 384
   ) {
     results.point2 = true;
     console.log(
-      '  ✓ [CHECK 2 PASSED]: 1536-dim embeddings generated and persisted in vector store.\n',
+      '  ✓ [CHECK 2 PASSED]: 384-dim MiniLM embeddings generated and persisted in vector store.\n',
     );
   } else {
     throw new Error('Check 2 Failed: Embeddings generation or vector store persistence failed.');

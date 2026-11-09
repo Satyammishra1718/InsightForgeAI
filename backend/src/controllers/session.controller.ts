@@ -1,7 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { SessionService } from '../services/session.service.js';
 import { CreateSessionInput, ListSessionsQuery } from '../validators/session.validator.js';
-import { runResearchPipeline } from '../agents/orchestrator.js';
+import { enqueueResearchJob } from '../queue/research.queue.js';
+import { SemanticCacheService } from '../services/semanticCache.service.js';
+import { Report, ResearchSession } from '../models/index.js';
 
 export const createSession = async (
   req: Request,
@@ -65,7 +67,8 @@ export const deleteSession = async (
 
 /**
  * POST /api/sessions/:id/run
- * Triggers the multi-agent research pipeline for an existing session
+ * Checks semantic cache first, otherwise enqueues asynchronous research job in BullMQ
+ * and returns { status: "queued", jobId, sessionId } immediately.
  */
 export const runSession = async (
   req: Request,
@@ -75,21 +78,52 @@ export const runSession = async (
   try {
     const id = (Array.isArray(req.params.id) ? req.params.id[0] : req.params.id) as string;
     const session = await SessionService.getSessionById(id);
+    const cacheable = req.body?.cacheable !== false;
 
-    const result = await runResearchPipeline(id, session.query);
+    // 1. Semantic Cache Check (in Node.js before enqueueing)
+    if (cacheable) {
+      const cacheResult = await SemanticCacheService.checkSemanticCache(session.query, 0.80);
+      if (cacheResult.hit && cacheResult.report) {
+        // Persist cached report for this session in MongoDB
+        const reportDoc = await Report.findOneAndUpdate(
+          { sessionId: id },
+          {
+            sessionId: id,
+            content: cacheResult.report.content,
+            sources: cacheResult.report.sources,
+            createdAt: new Date(),
+          },
+          { upsert: true, returnDocument: 'after' },
+        );
 
-    res.status(200).json({
-      message: 'Research pipeline completed successfully',
-      session: result.session,
-      report: result.report,
-      state: {
-        sessionId: result.state.sessionId,
-        originalQuery: result.state.originalQuery,
-        subQuestions: result.state.subQuestions,
-        researchFindings: result.state.researchFindings,
-        verifiedClaims: result.state.verifiedClaims,
-        finalReport: result.state.finalReport,
-      },
+        // Update session status to completed
+        const updatedSession = await ResearchSession.findByIdAndUpdate(
+          id,
+          { status: 'completed', updatedAt: new Date() },
+          { returnDocument: 'after' },
+        );
+
+        res.status(200).json({
+          message: 'Semantic cache hit! Returning cached research report.',
+          status: 'completed',
+          cached: true,
+          similarity: cacheResult.similarity,
+          matchedQuery: cacheResult.matchedQuery,
+          session: updatedSession || session,
+          report: reportDoc,
+        });
+        return;
+      }
+    }
+
+    // 2. Enqueue Job in BullMQ
+    const { jobId } = await enqueueResearchJob(id, session.query, cacheable);
+
+    res.status(202).json({
+      message: 'Research pipeline job successfully queued.',
+      status: 'queued',
+      jobId,
+      sessionId: id,
     });
   } catch (error) {
     next(error);

@@ -1,35 +1,79 @@
 version: '3.8'
 
+# Synchronized with root docker-compose.yml
+# To run from root: docker compose up -d
+# To run from docker/: docker compose -f docker-compose.yml up -d
+
 services:
-  # Backend API & WebSocket Service
-  backend:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.backend
-    container_name: insightforge-backend
+  mongo:
+    image: mongo:7-jammy
+    container_name: insightforge-mongo
     ports:
-      - "${PORT:-5000}:5000"
-      - "${WS_PORT:-5001}:5001"
-    environment:
-      - NODE_ENV=production
-      - PORT=5000
-      - WS_PORT=5001
-      - MONGODB_URI=mongodb://mongo:27017/insightforge
-      - REDIS_URL=redis://redis:6379
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - MCP_WEB_SEARCH_URL=http://mcp-web-search:4001/sse
-      - MCP_DOC_RETRIEVAL_URL=http://mcp-doc-retrieval:4002/sse
-    depends_on:
-      - mongo
-      - redis
-      - mcp-web-search
-      - mcp-doc-retrieval
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand({ ping: 1 })"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - insightforge-net
     restart: unless-stopped
 
-  # MCP Tool Server: Web Search
+  redis:
+    image: redis:7-alpine
+    container_name: insightforge-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 3s
+    networks:
+      - insightforge-net
+    restart: unless-stopped
+
+  agent-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agent-service
+    container_name: insightforge-agent-service
+    ports:
+      - "8000:8000"
+    environment:
+      - AGENT_SERVICE_PORT=8000
+      - AGENT_SERVICE_HOST=0.0.0.0
+      - BACKEND_URL=http://backend:5000
+      - REDIS_URL=redis://redis:6379
+      - LLM_PROVIDER=${LLM_PROVIDER:-groq}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GROQ_BASE_URL=${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-llama-3.3-70b-versatile}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - MCP_WEB_SEARCH_URL=http://mcp-web-search:4001/sse
+      - MCP_DOC_RETRIEVAL_URL=http://mcp-doc-retrieval:4002/sse
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - insightforge-net
+    restart: unless-stopped
+
   mcp-web-search:
     build:
       context: ..
@@ -42,11 +86,16 @@ services:
       - PORT=4001
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - SERPER_API_KEY=${SERPER_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4001/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - insightforge-net
     restart: unless-stopped
 
-  # MCP Tool Server: Document Retrieval & Hybrid RAG
   mcp-doc-retrieval:
     build:
       context: ..
@@ -61,11 +110,87 @@ services:
       - VECTOR_DB_PATH=/app/data/vector_db
     volumes:
       - vector_data:/app/data/vector_db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4002/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - insightforge-net
     restart: unless-stopped
 
-  # Frontend Web UI
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: insightforge-backend
+    ports:
+      - "${PORT:-5000}:5000"
+      - "${WS_PORT:-5001}:5001"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - WS_PORT=5001
+      - RUN_EMBEDDED_WORKER=false
+      - MONGODB_URI=mongodb://mongo:27017/insightforge
+      - REDIS_URL=redis://redis:6379
+      - AGENT_SERVICE_URL=http://agent-service:8000
+      - MCP_WEB_SEARCH_URL=http://mcp-web-search:4001/sse
+      - MCP_DOC_RETRIEVAL_URL=http://mcp-doc-retrieval:4002/sse
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      agent-service:
+        condition: service_healthy
+      mcp-web-search:
+        condition: service_healthy
+      mcp-doc-retrieval:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - model_cache:/app/data/models
+    networks:
+      - insightforge-net
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: insightforge-worker
+    command: ["node", "backend/dist/worker.js"]
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongo:27017/insightforge
+      - REDIS_URL=redis://redis:6379
+      - AGENT_SERVICE_URL=http://agent-service:8000
+      - WORKER_CONCURRENCY=3
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+      agent-service:
+        condition: service_healthy
+    volumes:
+      - model_cache:/app/data/models
+    networks:
+      - insightforge-net
+    restart: unless-stopped
+
   frontend:
     build:
       context: ..
@@ -74,31 +199,8 @@ services:
     ports:
       - "80:80"
     depends_on:
-      - backend
-    networks:
-      - insightforge-net
-    restart: unless-stopped
-
-  # MongoDB Document Store
-  mongo:
-    image: mongo:7-jammy
-    container_name: insightforge-mongo
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    networks:
-      - insightforge-net
-    restart: unless-stopped
-
-  # Redis In-Memory Cache & Message Broker
-  redis:
-    image: redis:7-alpine
-    container_name: insightforge-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
+      backend:
+        condition: service_healthy
     networks:
       - insightforge-net
     restart: unless-stopped
@@ -111,3 +213,4 @@ volumes:
   mongo_data:
   redis_data:
   vector_data:
+  model_cache:

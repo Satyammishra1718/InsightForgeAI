@@ -36,3 +36,20 @@ Thumbs.db
 data/
 *.db
 *.sqlite
+
+# Python & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env/
+agent-service/venv/
+
+# Redis binaries and dumps
+backend/redis-bin/
+redis-bin/
+dump.rdb
+
+

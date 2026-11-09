@@ -87,9 +87,9 @@ async function runRagTests() {
   ];
   const embeddings = await EmbeddingService.embedBatch(testTexts);
   console.log(`Generated ${embeddings.length} embeddings.`);
-  console.log(`Embedding dimensions: ${embeddings[0].length} (expected 1536)`);
+  console.log(`Embedding dimensions: ${embeddings[0].length} (expected 384)`);
 
-  if (embeddings.length !== 3 || embeddings[0].length !== 1536) {
+  if (embeddings.length !== 3 || embeddings[0].length !== 384) {
     throw new Error('Embedding service test failed: unexpected dimensions or count');
   }
   console.log('✓ Embedding generation passed!\n');

@@ -1,0 +1,75 @@
+import { Queue } from 'bullmq';
+import { getRedisConnectionOptions, ensureRedisServer } from '../config/redis.js';
+
+export interface ResearchJobData {
+  sessionId: string;
+  query: string;
+  cacheable?: boolean;
+}
+
+let researchQueueInstance: Queue<ResearchJobData> | null = null;
+
+export async function getResearchQueue(): Promise<Queue<ResearchJobData>> {
+  if (!researchQueueInstance) {
+    await ensureRedisServer();
+    researchQueueInstance = new Queue<ResearchJobData>('research', {
+      connection: getRedisConnectionOptions() as any,
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: {
+          type: 'exponential',
+          delay: 1000,
+        },
+        removeOnComplete: {
+          age: 3600, // keep completed jobs for 1 hour
+          count: 500,
+        },
+        removeOnFail: {
+          age: 86400, // keep failed jobs for 24 hours
+        },
+      },
+    }) as any;
+  }
+  return researchQueueInstance!;
+}
+
+/**
+ * Enqueues an asynchronous research job into BullMQ.
+ */
+export async function enqueueResearchJob(
+  sessionId: string,
+  query: string,
+  cacheable: boolean = true,
+): Promise<{ jobId: string; status: 'queued'; sessionId: string }> {
+  const queue = await getResearchQueue();
+  const jobId = `session-${sessionId}`;
+
+  // BullMQ silently ignores add() when a job with the same ID still exists
+  // (completed jobs are kept 1h, failed ones 24h). Dedupe only while a run is
+  // genuinely in flight; otherwise clear the finished job so a re-run executes.
+  const existing = await queue.getJob(jobId);
+  if (existing) {
+    const state = await existing.getState();
+    if (state === 'active' || state === 'waiting' || state === 'delayed' || state === 'prioritized' || state === 'waiting-children') {
+      console.log(`[Queue:research] Job ${jobId} already ${state}; not enqueuing a duplicate.`);
+      return { jobId, status: 'queued', sessionId };
+    }
+    await existing.remove();
+  }
+
+  const job = await queue.add('execute-research', { sessionId, query, cacheable }, { jobId });
+
+  console.log(`[Queue:research] Enqueued job ${job.id} for session ${sessionId}`);
+  return {
+    jobId: String(job.id),
+    status: 'queued',
+    sessionId,
+  };
+}
+
+export async function closeResearchQueue(): Promise<void> {
+  if (researchQueueInstance) {
+    await researchQueueInstance.close();
+    researchQueueInstance = null;
+  }
+}

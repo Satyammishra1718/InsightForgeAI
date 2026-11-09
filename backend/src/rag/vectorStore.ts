@@ -10,12 +10,16 @@ const __dirname = path.dirname(__filename);
 export interface VectorItem {
   id: string;
   embedding: number[];
+  /** Model that produced `embedding`. Vectors from different models are never compared. */
+  embeddingModel?: string;
   metadata: ChunkMetadata;
   document: string;
 }
 
 export interface CollectionQueryOptions {
   queryEmbeddings: number[][];
+  /** Only compare against items embedded with this model. */
+  embeddingModel?: string;
   nResults?: number;
   where?: Record<string, unknown>;
 }
@@ -46,14 +50,42 @@ export class LocalCollection {
   }
 
   private saveToDisk(): void {
+    // Unique temp name per write: a shared "<file>.tmp" let two processes (API server,
+    // scripts, MCP doc-retrieval fallback) overwrite each other's half-written temp file.
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
     try {
       const itemsArray = Array.from(this.items.values());
-      const tempPath = `${this.filePath}.tmp`;
       fs.writeFileSync(tempPath, JSON.stringify(itemsArray, null, 2), 'utf-8');
-      fs.renameSync(tempPath, this.filePath);
+      LocalCollection.replaceFile(tempPath, this.filePath);
     } catch (err) {
       console.error(`[VectorStore] Failed to persist collection '${this.name}' to disk:`, err);
+      try {
+        fs.rmSync(tempPath, { force: true });
+      } catch {
+        // best effort cleanup
+      }
     }
+  }
+
+  /**
+   * Atomically replace target with source. On Windows, rename fails with EPERM/EBUSY/EACCES
+   * while another process, an antivirus scanner or OneDrive sync briefly holds the target
+   * open, so retry with backoff and finally fall back to a copy.
+   */
+  private static replaceFile(source: string, target: string): void {
+    const transient = new Set(['EPERM', 'EBUSY', 'EACCES']);
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        fs.renameSync(source, target);
+        return;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code ?? '';
+        if (!transient.has(code)) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25 * 2 ** attempt);
+      }
+    }
+    fs.copyFileSync(source, target);
+    fs.rmSync(source, { force: true });
   }
 
   /**
@@ -64,8 +96,9 @@ export class LocalCollection {
     embeddings: number[][];
     metadatas: ChunkMetadata[];
     documents: string[];
+    embeddingModel?: string;
   }): Promise<void> {
-    const { ids, embeddings, metadatas, documents } = params;
+    const { ids, embeddings, metadatas, documents, embeddingModel } = params;
 
     for (let i = 0; i < ids.length; i++) {
       const id = ids[i];
@@ -76,6 +109,7 @@ export class LocalCollection {
       this.items.set(id, {
         id,
         embedding,
+        embeddingModel,
         metadata,
         document,
       });
@@ -88,8 +122,15 @@ export class LocalCollection {
    * Queries collection using cosine similarity with optional metadata filtering
    */
   public async query(options: CollectionQueryOptions): Promise<VectorSearchResult[][]> {
-    const { queryEmbeddings, nResults = 5, where } = options;
-    const allItems = Array.from(this.items.values());
+    const { queryEmbeddings, nResults = 5, where, embeddingModel } = options;
+    const queryDim = queryEmbeddings[0]?.length;
+    // Comparing vectors from different embedding models (or dimensions) yields meaningless
+    // scores, so restrict the search to items produced by the same model.
+    const allItems = Array.from(this.items.values()).filter(
+      (item) =>
+        item.embedding.length === queryDim &&
+        (!embeddingModel || !item.embeddingModel || item.embeddingModel === embeddingModel),
+    );
 
     // Filter items if 'where' metadata filter is present
     const filteredItems = where

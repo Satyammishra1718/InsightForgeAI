@@ -66,13 +66,14 @@ export class IngestionPipeline {
 
     // 3. Batched Embedding Generation
     const chunkTexts = chunks.map((c) => c.text);
-    const embeddings = await EmbeddingService.embedBatch(chunkTexts);
+    const { embeddings, model: embeddingModel } = await EmbeddingService.embedBatchWithModel(chunkTexts);
 
     // 4. Store in Vector Database
     const collection = vectorStore.getOrCreateCollection(collectionName);
     await collection.add({
       ids: chunks.map((c) => c.id),
       embeddings,
+      embeddingModel,
       metadatas: chunks.map((c) => c.metadata),
       documents: chunkTexts,
     });
@@ -138,13 +139,14 @@ export class IngestionPipeline {
 
     // Batched embedding
     const chunkTexts = allChunks.map((c) => c.text);
-    const embeddings = await EmbeddingService.embedBatch(chunkTexts);
+    const { embeddings, model: embeddingModel } = await EmbeddingService.embedBatchWithModel(chunkTexts);
 
     // Store in Vector DB
     const collection = vectorStore.getOrCreateCollection(collectionName);
     await collection.add({
       ids: allChunks.map((c) => c.id),
       embeddings,
+      embeddingModel,
       metadatas: allChunks.map((c) => c.metadata),
       documents: chunkTexts,
     });
@@ -185,12 +187,13 @@ export class IngestionPipeline {
     });
 
     const chunkTexts = chunks.map((c) => c.text);
-    const embeddings = await EmbeddingService.embedBatch(chunkTexts);
+    const { embeddings, model: embeddingModel } = await EmbeddingService.embedBatchWithModel(chunkTexts);
 
     const collection = vectorStore.getOrCreateCollection(collectionName);
     await collection.add({
       ids: chunks.map((c) => c.id),
       embeddings,
+      embeddingModel,
       metadatas: chunks.map((c) => c.metadata),
       documents: chunkTexts,
     });

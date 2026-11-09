@@ -6,6 +6,7 @@ export interface IResearchSession {
   userId?: Types.ObjectId | string;
   query: string;
   status: SessionStatus;
+  errorMessage?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,6 +37,10 @@ const researchSessionSchema = new Schema<ResearchSessionDocument>(
       },
       default: 'pending',
       index: true,
+    },
+    errorMessage: {
+      type: String,
+      required: false,
     },
   },
   {

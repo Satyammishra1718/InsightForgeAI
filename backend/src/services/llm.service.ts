@@ -16,6 +16,18 @@ export class LLMService {
   private static openaiClient: OpenAI | null = null;
 
   private static getClient(): OpenAI | null {
+    const groqKey = process.env.GROQ_API_KEY;
+    const provider = (process.env.LLM_PROVIDER || 'groq').toLowerCase();
+    if (provider === 'groq' && groqKey && groqKey.startsWith('gsk_') && !groqKey.includes('your_')) {
+      if (!this.openaiClient) {
+        this.openaiClient = new OpenAI({
+          apiKey: groqKey,
+          baseURL: process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1',
+        });
+      }
+      return this.openaiClient;
+    }
+
     const apiKey = config.openaiApiKey || process.env.OPENAI_API_KEY;
     if (!apiKey || apiKey.startsWith('your_') || apiKey.trim() === '') {
       return null;
@@ -41,8 +53,9 @@ export class LLMService {
     const client = this.getClient();
     if (client) {
       try {
+        const defaultModel = process.env.LLM_MODEL || 'openai/gpt-oss-120b';
         const response = await client.chat.completions.create({
-          model: options.model || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+          model: options.model || defaultModel,
           messages,
           temperature: options.temperature ?? 0.3,
           max_tokens: options.maxTokens ?? 2000,
